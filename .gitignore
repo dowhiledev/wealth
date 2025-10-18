@@ -11,3 +11,5 @@ wheels/
 .env
 *.db
 *.csv
+*.png
+*.pdf

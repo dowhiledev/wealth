@@ -1054,6 +1054,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pandas" },
+    { name = "pillow" },
     { name = "python-dotenv" },
     { name = "reportlab" },
     { name = "requests" },
@@ -1066,6 +1067,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pillow", specifier = ">=12.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "reportlab", specifier = ">=4.4.4" },
     { name = "requests", specifier = ">=2.32.5" },
