@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import { formatAmount } from "@/lib/utils";
 
 export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -142,9 +143,9 @@ export default function TransactionsPage() {
                   <TableCell>{t.account_id}</TableCell>
                   <TableCell>{t.asset_symbol}</TableCell>
                   <TableCell>{t.side}</TableCell>
-                  <TableCell>{t.qty}</TableCell>
-                  <TableCell>{t.price_quote ?? ""}</TableCell>
-                  <TableCell>{t.total_quote ?? ""}</TableCell>
+                  <TableCell>{formatAmount(t.qty)}</TableCell>
+                  <TableCell>{t.price_quote != null ? formatAmount(t.price_quote) : ""}</TableCell>
+                  <TableCell>{t.total_quote != null ? formatAmount(t.total_quote) : ""}</TableCell>
                   <TableCell>{t.quote_ccy ?? ""}</TableCell>
                   <TableCell className="text-right"><Button variant="destructive" size="sm" onClick={() => onDelete(t.id)}>Delete</Button></TableCell>
                 </TableRow>
@@ -156,4 +157,3 @@ export default function TransactionsPage() {
     </div>
   );
 }
-

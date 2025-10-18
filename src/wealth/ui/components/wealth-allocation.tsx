@@ -2,22 +2,24 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from "recharts";
+import { formatAmount } from "@/lib/utils";
 
 type Position = { asset: string; value?: number; qty: number };
 
 const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
-export function WealthAllocation() {
+export function WealthAllocation({ accountId }: { accountId?: number }) {
   const [data, setData] = useState<Position[]>([]);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
-    fetch(`${base}/portfolio/summary`).then(r => r.json()).then((s) => {
+    const q = accountId ? `?account_id=${accountId}` : "";
+    fetch(`${base}/portfolio/summary${q}`).then(r => r.json()).then((s) => {
       const ds = (s.positions as any[]).map(p => ({ asset: p.asset, value: Number(p.value ?? 0), qty: Number(p.qty) }))
-        .filter(p => p.value > 0);
+        .filter(p => (p.value ?? 0) > 0);
       setData(ds);
     }).catch(() => {});
-  }, []);
+  }, [accountId]);
 
   return (
     <Card className="mx-4 lg:mx-6">
@@ -32,7 +34,7 @@ export function WealthAllocation() {
                 <Cell key={idx} fill={PALETTE[idx % PALETTE.length]} />
               ))}
             </Pie>
-            <Tooltip />
+            <Tooltip formatter={(v) => formatAmount(v as number)} />
             <Legend />
           </PieChart>
         </ResponsiveContainer>
@@ -40,4 +42,3 @@ export function WealthAllocation() {
     </Card>
   );
 }
-
