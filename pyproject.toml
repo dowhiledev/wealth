@@ -13,6 +13,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "sqlmodel>=0.0.27",
     "typer>=0.19.2",
+    "python-dotenv>=1.0.1",
 ]
 
 [project.scripts]
