@@ -51,11 +51,9 @@ config_app = typer.Typer(help="Configuration commands")
 def config_show() -> None:
     """Show current configuration as seen by the CLI."""
     cfg = get_config()
-    api_present = bool(cfg.coinmarketcap_api_key)
     lines = [
         f"db_path: {cfg.db_path}",
         f"base_currency: {cfg.base_currency}",
-        f"coinmarketcap_api_key_set: {api_present}",
     ]
     typer.echo("\n".join(lines))
 
@@ -104,7 +102,6 @@ def price_sync(
     until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency (e.g., USD)"),
     interval: str = typer.Option("1d", "--interval", help="Interval: 1d|daily"),
-    sandbox: bool = typer.Option(None, "--sandbox/--no-sandbox", help="Use CMC sandbox API (overrides env)"),
 ) -> None:
     """Fetch historical prices from CoinMarketCap and store in DB."""
     # Ensure providers are registered
@@ -114,10 +111,7 @@ def price_sync(
     cfg = get_config()
     until = until or datetime.utcnow()
     # Allow sandbox override via CLI
-    base_url_override = None
-    if sandbox is not None:
-        base_url_override = "https://sandbox-api.coinmarketcap.com" if sandbox else "https://pro-api.coinmarketcap.com"
-    src = CoinMarketCapPriceSource(base_url=base_url_override)
+    src = CoinMarketCapPriceSource()
     symbols = [s.strip().upper() for s in assets.split(",") if s.strip()]
 
     total = 0
@@ -140,15 +134,12 @@ def price_sync(
 def price_quote(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency"),
-    sandbox: bool = typer.Option(None, "--sandbox/--no-sandbox", help="Use CMC sandbox API (overrides env)"),
 ) -> None:
     """Fetch and display the latest quote from CoinMarketCap."""
     import wealth.datasources  # noqa
     from wealth.datasources.coinmarketcap import CoinMarketCapPriceSource
     base_url_override = None
-    if sandbox is not None:
-        base_url_override = "https://sandbox-api.coinmarketcap.com" if sandbox else "https://pro-api.coinmarketcap.com"
-    src = CoinMarketCapPriceSource(base_url=base_url_override)
+    src = CoinMarketCapPriceSource()
     q = src.get_quote(asset, quote)
     typer.echo(f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()}")
 
@@ -172,6 +163,13 @@ def price_show(
 
 
 app.add_typer(price_app, name="price")
+
+# Domain subcommands
+from .cli.account import app as account_app
+from .cli.tx import app as tx_app
+
+app.add_typer(account_app, name="account")
+app.add_typer(tx_app, name="tx")
 
 
 def main() -> None:

@@ -71,6 +71,34 @@ def delete_account(session: Session, account_id: int) -> bool:
     return True
 
 
+def update_account(
+    session: Session,
+    account_id: int,
+    *,
+    name: str | None = None,
+    type_: AccountType | None = None,
+    datasource: str | None = None,
+    external_id: str | None = None,
+    currency: str | None = None,
+) -> Account | None:
+    acc = get_account(session, account_id)
+    if not acc:
+        return None
+    if name is not None:
+        acc.name = name
+    if type_ is not None:
+        acc.type = type_
+    if datasource is not None:
+        acc.datasource = datasource
+    if external_id is not None:
+        acc.external_id = external_id
+    if currency is not None:
+        acc.currency = currency
+    session.add(acc)
+    session.flush()
+    return acc
+
+
 # Transaction CRUD
 def create_transaction(
     session: Session,
@@ -159,6 +187,69 @@ def delete_transaction(session: Session, tx_id: int) -> bool:
     return True
 
 
+def update_transaction(
+    session: Session,
+    tx_id: int,
+    *,
+    ts: datetime | None = None,
+    account_id: int | None = None,
+    asset_symbol: str | None = None,
+    side: TxSide | None = None,
+    qty=None,
+    price_quote=None,
+    total_quote=None,
+    quote_ccy: str | None = None,
+    fee_qty=None,
+    fee_asset: str | None = None,
+    note: str | None = None,
+    tx_hash: str | None = None,
+    external_id: str | None = None,
+    datasource: str | None = None,
+    import_batch_id: int | None = None,
+    tags: str | None = None,
+) -> Transaction | None:
+    tx = get_transaction(session, tx_id)
+    if not tx:
+        return None
+    if ts is not None:
+        tx.ts = ts
+    if account_id is not None:
+        tx.account_id = account_id
+    if asset_symbol is not None:
+        ensure_asset(session, asset_symbol)
+        tx.asset_symbol = asset_symbol.upper()
+    if side is not None:
+        tx.side = side
+    if qty is not None:
+        tx.qty = qty
+    if price_quote is not None:
+        tx.price_quote = price_quote
+    if total_quote is not None:
+        tx.total_quote = total_quote
+    if quote_ccy is not None:
+        tx.quote_ccy = quote_ccy
+    if fee_qty is not None:
+        tx.fee_qty = fee_qty
+    if fee_asset is not None:
+        ensure_asset(session, fee_asset)
+        tx.fee_asset = fee_asset.upper()
+    if note is not None:
+        tx.note = note
+    if tx_hash is not None:
+        tx.tx_hash = tx_hash
+    if external_id is not None:
+        tx.external_id = external_id
+    if datasource is not None:
+        tx.datasource = datasource
+    if import_batch_id is not None:
+        tx.import_batch_id = import_batch_id
+    if tags is not None:
+        tx.tags = tags
+    session.add(tx)
+    session.flush()
+    return tx
+
+
 # Price helpers
 def upsert_price(
     session: Session,
@@ -213,4 +304,3 @@ def list_prices(
         stmt = stmt.where(Price.ts <= until)
     stmt = stmt.order_by(Price.ts.desc()).limit(limit).offset(offset)
     return list(session.exec(stmt))
-

@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 import requests
 
-from wealth.core.config import get_config
+import os
 
 from .base import OHLCVPoint, PriceDataSource, PriceQuote
 from .registry import register_price_source
@@ -112,11 +112,10 @@ class CoinMarketCapPriceSource:
         return "coinmarketcap"
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        cfg = get_config()
-        api_key = api_key or cfg.coinmarketcap_api_key
+        api_key = api_key or os.getenv("COINMARKETCAP_API_KEY")
         if not api_key:
             raise RuntimeError("COINMARKETCAP_API_KEY not configured")
-        url = base_url or cfg.coinmarketcap_base_url
+        url = base_url or os.getenv("COINMARKETCAP_BASE_URL", "https://sandbox-api.coinmarketcap.com")
         self.client = _CMCClient(api_key, url)
         self._symbol_id_cache: Dict[str, Optional[int]] = {}
 
