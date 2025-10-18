@@ -23,7 +23,7 @@ export default function TransactionsPage() {
     price_quote: "",
     total_quote: "",
     quote_ccy: "USD",
-  } as any);
+  } as TxIn);
 
   const load = async () => {
     setLoading(true);
@@ -32,26 +32,30 @@ export default function TransactionsPage() {
       setAccounts(accts);
       setTxs(rows);
       if (form.account_id === 0 && accts.length > 0) setForm({ ...form, account_id: accts[0].id });
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    // initial fetch
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onCreate = async () => {
     if (!form.account_id) { toast.error("Select account"); return; }
     try {
-      const body = { ...form, qty: String(form.qty || "0") } as TxIn;
+      const body: TxIn = { ...form, qty: String(form.qty || "0") };
       await api.tx.create(body);
       await load();
       toast.success("Transaction created");
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
@@ -61,8 +65,9 @@ export default function TransactionsPage() {
       await api.tx.remove(id);
       await load();
       toast.success("Transaction deleted");
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
@@ -88,7 +93,7 @@ export default function TransactionsPage() {
           </div>
           <div>
             <label className="text-sm">Side</label>
-            <Select value={form.side} onValueChange={(v) => setForm({ ...form, side: v as any })}>
+            <Select value={form.side} onValueChange={(v) => setForm({ ...form, side: v as TxIn["side"] })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {(["buy","sell","transfer_in","transfer_out","stake","reward","fee"] as const).map(s => (

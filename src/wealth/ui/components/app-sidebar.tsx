@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { IconDashboard, IconListDetails, IconUsers, IconInnerShadowTop } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
@@ -27,10 +28,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild className="data-[slot=sidebar-menu-button]:!p-1.5">
-              <a href="/">
+              <Link href="/">
                 <IconInnerShadowTop className="!size-5" />
                 <span className="text-base font-semibold">Wealth</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

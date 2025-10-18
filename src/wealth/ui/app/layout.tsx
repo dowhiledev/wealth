@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
+import { DashboardProvider } from "@/components/dashboard-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,8 +38,12 @@ export default function RootLayout({
         >
           <AppSidebar variant="inset" />
           <SidebarInset>
-            <SiteHeader />
-            <div className="flex flex-1 flex-col p-4 lg:p-6">{children}</div>
+            <DashboardProvider>
+              <SiteHeader />
+              <div className="flex flex-1 flex-col p-4 lg:p-6">
+                <div className="mx-auto w-full max-w-5xl">{children}</div>
+              </div>
+            </DashboardProvider>
           </SidebarInset>
         </SidebarProvider>
         <Toaster richColors closeButton position="top-right" />

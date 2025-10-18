@@ -8,21 +8,51 @@ type Position = { asset: string; value?: number; qty: number };
 
 const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
-export function WealthAllocation({ accountId }: { accountId?: number }) {
+export function WealthAllocation({ accountIds }: { accountIds?: number[] }) {
   const [data, setData] = useState<Position[]>([]);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
-    const q = accountId ? `?account_id=${accountId}` : "";
-    fetch(`${base}/portfolio/summary${q}`).then(r => r.json()).then((s) => {
-      const ds = (s.positions as any[]).map(p => ({ asset: p.asset, value: Number(p.value ?? 0), qty: Number(p.qty) }))
-        .filter(p => (p.value ?? 0) > 0);
+    const load = async () => {
+      if (!accountIds || accountIds.length === 0) {
+        const s: { positions: Array<{ asset: string; value?: number | string; qty: number | string }> } = await fetch(`${base}/portfolio/summary`).then(r => r.json());
+        const ds = s.positions
+          .map(p => ({ asset: p.asset, value: Number(p.value ?? 0), qty: Number(p.qty) }))
+          .filter(p => (p.value ?? 0) > 0);
+        setData(ds);
+        return;
+      }
+      if (accountIds.length === 1) {
+        const s: { positions: Array<{ asset: string; value?: number | string; qty: number | string }> } = await fetch(`${base}/portfolio/summary?account_id=${accountIds[0]}`).then(r => r.json());
+        const ds = s.positions
+          .map(p => ({ asset: p.asset, value: Number(p.value ?? 0), qty: Number(p.qty) }))
+          .filter(p => (p.value ?? 0) > 0);
+        setData(ds);
+        return;
+      }
+      const summaries = await Promise.all(
+        accountIds.map((id) => fetch(`${base}/portfolio/summary?account_id=${id}`).then(r => r.json() as Promise<{ positions: Array<{ asset: string; value?: number | string; qty: number | string }> }>))
+      );
+      const byAsset = new Map<string, { asset: string; value: number; qty: number }>();
+      for (const s of summaries) {
+        for (const p of s.positions) {
+          const a = String(p.asset);
+          const v = Number(p.value ?? 0);
+          const q = Number(p.qty ?? 0);
+          const cur = byAsset.get(a) || { asset: a, value: 0, qty: 0 };
+          cur.value += v;
+          cur.qty += q;
+          byAsset.set(a, cur);
+        }
+      }
+      const ds = Array.from(byAsset.values()).filter(p => (p.value ?? 0) > 0);
       setData(ds);
-    }).catch(() => {});
-  }, [accountId]);
+    };
+    load().catch(() => {});
+  }, [accountIds]);
 
   return (
-    <Card className="mx-4 lg:mx-6">
+    <Card>
       <CardHeader>
         <CardTitle>Allocation</CardTitle>
       </CardHeader>

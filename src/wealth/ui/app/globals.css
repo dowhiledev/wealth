@@ -44,7 +44,7 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0px; /* flatten default radius */
   /* Old money palette: cream, deep green, muted gold, taupe */
   --background: #f6f2e8;
   --foreground: #1f2d24;
@@ -122,4 +122,8 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Force square corners across shadcn components */
+  [data-slot] { border-radius: 0 !important; }
+  /* Common rounded utility overrides */
+  .rounded, .rounded-xs, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl, .rounded-full { border-radius: 0 !important; }
 }

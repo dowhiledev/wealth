@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type Account, type AccountIn } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +19,9 @@ export default function AccountsPage() {
     try {
       const rows = await api.accounts.list();
       setAccounts(rows);
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -40,8 +41,9 @@ export default function AccountsPage() {
       setForm({ name: "", type: form.type, currency: form.currency, datasource: form.datasource, external_id: "" });
       await load();
       toast.success("Account created");
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
@@ -51,8 +53,9 @@ export default function AccountsPage() {
       await api.accounts.remove(id);
       await load();
       toast.success("Account deleted");
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
     }
   };
 
@@ -69,7 +72,7 @@ export default function AccountsPage() {
           </div>
           <div>
             <label className="text-sm">Type</label>
-            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as any })}>
+            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as AccountIn["type"] })}>
               <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="exchange">Exchange</SelectItem>
@@ -125,4 +128,3 @@ export default function AccountsPage() {
     </div>
   );
 }
-
