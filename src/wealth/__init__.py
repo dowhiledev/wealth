@@ -7,14 +7,19 @@ import time
 import os
 
 import typer
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
 
 from .core.config import get_config
 from .db.engine import init_db
 from .db.repo import session_scope, upsert_price, list_prices, get_asset_preference, set_asset_preference
 from .core.valuation import summarize_portfolio
+from wealth.cli.ui import fmt_decimal, fmt_money, colorize_pnl
 
 
 app = typer.Typer(help="Wealth CLI — manage crypto transactions and reports.")
+console = Console()
 
 
 def _setup_logging(verbosity: int) -> None:
@@ -81,22 +86,19 @@ def datasource_list() -> None:
     import wealth.datasources  # noqa: F401
     from wealth.datasources.registry import get_import_sources, get_price_sources
 
-    price_sources = get_price_sources()
-    import_sources = get_import_sources()
+    price_sources = sorted(get_price_sources().keys())
+    import_sources = sorted(get_import_sources().keys())
 
-    typer.echo("Price sources:")
-    if price_sources:
-        for key in sorted(price_sources.keys()):
-            typer.echo(f"  - {key}")
-    else:
-        typer.echo("  (none)")
-
-    typer.echo("Import sources:")
-    if import_sources:
-        for key in sorted(import_sources.keys()):
-            typer.echo(f"  - {key}")
-    else:
-        typer.echo("  (none)")
+    pt = Table(title="Price Sources")
+    pt.add_column("Name")
+    for k in price_sources:
+        pt.add_row(k)
+    it = Table(title="Import Sources")
+    it.add_column("Name")
+    for k in import_sources:
+        it.add_row(k)
+    console.print(pt)
+    console.print(it)
 
 
 app.add_typer(datasource_app, name="datasource")
@@ -239,8 +241,12 @@ def price_show(
     if not rows:
         typer.echo("No prices found.")
         raise typer.Exit(code=0)
+    table = Table(title=f"Prices for {asset}/{quote}")
+    table.add_column("Timestamp")
+    table.add_column("Close", justify="right")
     for r in rows:
-        typer.echo(f"{r.asset_symbol}/{r.quote_ccy} {r.ts.isoformat()} close={r.price}")
+        table.add_row(r.ts.isoformat(), str(r.price))
+    console.print(table)
 
 
 app.add_typer(price_app, name="price")
@@ -275,26 +281,72 @@ def portfolio_summary(
     with session_scope(cfg.db_path) as s:
         positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
     if not positions:
-        typer.echo("No holdings as of the specified time.")
+        console.print("[yellow]No holdings as of the specified time.[/yellow]")
         raise typer.Exit(code=0)
-    typer.echo(f"Portfolio summary as of {as_of.isoformat()} in {quote}:")
-    typer.echo("asset  qty                 price           value           cost_open       unrealized      realized")
+    console.print(Panel.fit(f"Portfolio summary as of {as_of.isoformat()} in {quote}", border_style="cyan"))
+    table = Table(title="Positions")
+    table.add_column("Asset")
+    table.add_column("Qty", justify="right")
+    table.add_column("Price", justify="right")
+    table.add_column("Value", justify="right")
+    table.add_column("Cost Open", justify="right")
+    table.add_column("Unrealized", justify="right")
+    table.add_column("Realized", justify="right")
     for p in positions:
-        price_s = f"{p.price}" if p.price is not None else "N/A"
-        value_s = f"{p.value}" if p.value is not None else "N/A"
-        cost_s = f"{p.cost_open}" if p.cost_open is not None else "N/A"
-        unreal_s = f"{p.unrealized_pnl}" if p.unrealized_pnl is not None else "N/A"
-        typer.echo(
-            f"{p.asset:<5} {p.qty:<18} {price_s:<15} {value_s:<15} {cost_s:<15} {unreal_s:<15} {p.realized_pnl}"
+        price_s = fmt_money(p.price) if p.price is not None else "-"
+        value_s = fmt_money(p.value) if p.value is not None else "-"
+        cost_s = fmt_money(p.cost_open) if p.cost_open is not None else "-"
+        table.add_row(
+            p.asset,
+            fmt_decimal(p.qty),
+            price_s,
+            value_s,
+            cost_s,
+            colorize_pnl(p.unrealized_pnl),
+            colorize_pnl(p.realized_pnl),
         )
-    typer.echo("Totals:")
-    typer.echo(
-        f"value={totals['value']} cost_open={totals['cost_open']} unrealized={totals['unrealized']} realized={totals['realized']}"
+    console.print(table)
+    totals_panel = Panel(
+        f"[bold]Totals[/bold]\nValue: {fmt_money(totals['value'])}\nCost Open: {fmt_money(totals['cost_open'])}\nUnrealized: {fmt_money(totals['unrealized'])}\nRealized: {fmt_money(totals['realized'])}",
+        border_style="magenta",
     )
+    console.print(totals_panel)
 
 
 app.add_typer(portfolio_app, name="portfolio")
 
+
+@portfolio_app.command("chart")
+def portfolio_chart(
+    since: datetime = typer.Option(..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"),
+    until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
+    quote: str = typer.Option("USD", "--quote", help="Quote currency for valuation"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
+) -> None:
+    """Render a terminal line chart of portfolio value over time."""
+    import plotext as plt
+    from wealth.core.valuation import summarize_portfolio
+    from datetime import timedelta
+
+    cfg = get_config()
+    until = until or datetime.utcnow()
+    xs = []
+    ys = []
+    with session_scope(cfg.db_path) as s:
+        cur = since
+        while cur <= until:
+            positions, totals = summarize_portfolio(s, as_of=cur, quote=quote, account_id=account_id)
+            xs.append(cur.strftime('%Y-%m-%d'))
+            ys.append(float(totals["value"]))
+            cur = cur + timedelta(days=1)
+    if not ys:
+        console.print("[yellow]No data available for the requested range.[/yellow]")
+        raise typer.Exit(code=0)
+    plt.clear_figure()
+    plt.date_form('Y-m-d')
+    plt.plot(xs, ys, marker='dot')
+    plt.title(f"Portfolio Value ({quote})")
+    plt.show()
 
 def main() -> None:
     app()

@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import typer
+from wealth.cli.ui import console, fmt_decimal, fmt_money, success_panel
 
 from wealth.core.config import get_config
 from wealth.db.models import TxSide
@@ -70,7 +71,7 @@ def add(
             import_batch_id=import_batch_id,
             tags=tags,
         )
-        typer.echo(f"Created tx id={tx.id} asset={tx.asset_symbol} side={tx.side} qty={tx.qty}")
+        console.print(success_panel(f"Created tx id={tx.id} asset={tx.asset_symbol} side={tx.side} qty={fmt_decimal(tx.qty)}"))
 
 
 @app.command("list")
@@ -84,6 +85,7 @@ def list_(
     offset: int = typer.Option(0, "--offset"),
 ):
     cfg = get_config()
+    from rich.table import Table
     with session_scope(cfg.db_path) as s:
         rows = list_transactions(
             s,
@@ -96,13 +98,33 @@ def list_(
             offset=offset,
         )
         if not rows:
-            typer.echo("No transactions found.")
+            console.print("[yellow]No transactions found.[/yellow]")
             raise typer.Exit(code=0)
-        typer.echo("id   ts                        acct  asset  side          qty        price_quote  total_quote  qccy")
+        table = Table(title="Transactions")
+        table.add_column("ID", justify="right")
+        table.add_column("Timestamp")
+        table.add_column("Acct", justify="right")
+        table.add_column("Asset")
+        table.add_column("Side")
+        table.add_column("Qty", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Total", justify="right")
+        table.add_column("QCCY")
         for t in rows:
-            typer.echo(
-                f"{t.id:<4} {t.ts.isoformat():<24} {t.account_id:<5} {t.asset_symbol:<5} {t.side:<12} {t.qty:<10} {str(t.price_quote or ''):<12} {str(t.total_quote or ''):<12} {t.quote_ccy or ''}"
+            side_str = str(t.side)
+            side_style = "green" if "buy" in side_str else ("red" if "sell" in side_str else "yellow")
+            table.add_row(
+                str(t.id),
+                t.ts.isoformat(),
+                str(t.account_id),
+                t.asset_symbol,
+                f"[{side_style}]{t.side}[/{side_style}]",
+                fmt_decimal(t.qty),
+                fmt_decimal(t.price_quote),
+                fmt_decimal(t.total_quote),
+                t.quote_ccy or "",
             )
+        console.print(table)
 
 
 @app.command("edit")
@@ -156,9 +178,9 @@ def edit(
             tags=tags,
         )
         if tx:
-            typer.echo(f"Updated tx id={tx.id}")
+            console.print(success_panel(f"Updated tx id={tx.id}"))
     if not tx:
-        typer.echo("Transaction not found.")
+        console.print("[red]Transaction not found.[/red]")
         raise typer.Exit(code=1)
 
 
@@ -168,6 +190,6 @@ def rm(id: int = typer.Option(..., "--id")):
     with session_scope(cfg.db_path) as s:
         ok = delete_transaction(s, id)
     if not ok:
-        typer.echo("Transaction not found.")
+        console.print("[red]Transaction not found.[/red]")
         raise typer.Exit(code=1)
-    typer.echo("Deleted transaction.")
+    console.print(success_panel("Deleted transaction."))

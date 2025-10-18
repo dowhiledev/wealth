@@ -13,7 +13,7 @@ from .models import Account, AccountType, Asset, Price, Transaction, TxSide, Imp
 @contextmanager
 def session_scope(db_path: str):
     engine = get_engine(db_path)
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     try:
         yield session
         session.commit()
