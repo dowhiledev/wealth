@@ -16,6 +16,9 @@ from .registry import register_price_source
 class _CMCClient:
     def __init__(self, api_key: str, base_url: str):
         self.api_key = api_key
+        # Normalize base URL: ensure scheme and strip trailing slash
+        if "://" not in base_url:
+            base_url = "https://" + base_url
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({
@@ -30,7 +33,23 @@ class _CMCClient:
         r = self.session.get(url, params=params, timeout=30)
         if r.status_code == 429:
             raise RuntimeError("CoinMarketCap rate limit exceeded (HTTP 429)")
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as e:
+            # Try to extract CMC error payload for clarity
+            err_detail = None
+            try:
+                j = r.json()
+                status = j.get("status", {})
+                code = status.get("error_code")
+                msg = status.get("error_message")
+                if code or msg:
+                    err_detail = f"CMC error {code}: {msg}"
+            except Exception:
+                pass
+            if err_detail:
+                raise RuntimeError(f"HTTP {r.status_code} from {url}: {err_detail}") from e
+            raise
         data = r.json()
         status = data.get("status", {})
         if status.get("error_code") not in (None, 0):

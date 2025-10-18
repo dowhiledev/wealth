@@ -35,6 +35,8 @@ def _app_callback(
 ) -> None:
     """Global options and initialization."""
     _setup_logging(verbose)
+    # Ensure .env is loaded early for all commands
+    _ = get_config()
 
 
 @app.command()
