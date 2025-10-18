@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Iterable, Optional
+
+from sqlmodel import Session, select
+
+from .engine import get_engine
+from .models import Account, AccountType, Asset, Price, Transaction, TxSide
+
+
+@contextmanager
+def session_scope(db_path: str):
+    engine = get_engine(db_path)
+    session = Session(engine)
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# Asset helpers
+def get_asset(session: Session, symbol: str) -> Optional[Asset]:
+    return session.get(Asset, symbol)
+
+
+def ensure_asset(session: Session, symbol: str, *, name: Optional[str] = None, type_: str = "crypto", decimals: int = 18, cmc_id: Optional[int] = None) -> Asset:
+    symbol_u = symbol.upper()
+    asset = get_asset(session, symbol_u)
+    if asset:
+        return asset
+    asset = Asset(symbol=symbol_u, name=name, type=type_, decimals=decimals, cmc_id=cmc_id)
+    session.add(asset)
+    session.flush()
+    return asset
+
+
+# Account CRUD
+def create_account(session: Session, *, name: str, type_: AccountType, datasource: Optional[str] = None, external_id: Optional[str] = None, currency: str = "USD") -> Account:
+    acc = Account(name=name, type=type_, datasource=datasource, external_id=external_id, currency=currency)
+    session.add(acc)
+    session.flush()
+    return acc
+
+
+def get_account(session: Session, account_id: int) -> Optional[Account]:
+    return session.get(Account, account_id)
+
+
+def list_accounts(session: Session, *, name_like: Optional[str] = None, datasource: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[Account]:
+    stmt = select(Account)
+    if name_like:
+        stmt = stmt.where(Account.name.ilike(f"%{name_like}%"))
+    if datasource:
+        stmt = stmt.where(Account.datasource == datasource)
+    stmt = stmt.order_by(Account.created_at.desc()).limit(limit).offset(offset)
+    return list(session.exec(stmt))
+
+
+def delete_account(session: Session, account_id: int) -> bool:
+    acc = get_account(session, account_id)
+    if not acc:
+        return False
+    session.delete(acc)
+    session.flush()
+    return True
+
+
+# Transaction CRUD
+def create_transaction(
+    session: Session,
+    *,
+    ts: datetime,
+    account_id: int,
+    asset_symbol: str,
+    side: TxSide,
+    qty,
+    price_quote=None,
+    total_quote=None,
+    quote_ccy: Optional[str] = "USD",
+    fee_qty=None,
+    fee_asset: Optional[str] = None,
+    note: Optional[str] = None,
+    tx_hash: Optional[str] = None,
+    external_id: Optional[str] = None,
+    datasource: Optional[str] = None,
+    import_batch_id: Optional[int] = None,
+    tags: Optional[str] = None,
+) -> Transaction:
+    # Ensure asset exists
+    ensure_asset(session, asset_symbol)
+    if fee_asset:
+        ensure_asset(session, fee_asset)
+
+    tx = Transaction(
+        ts=ts,
+        account_id=account_id,
+        asset_symbol=asset_symbol.upper(),
+        side=side,
+        qty=qty,
+        price_quote=price_quote,
+        total_quote=total_quote,
+        quote_ccy=quote_ccy,
+        fee_qty=fee_qty,
+        fee_asset=fee_asset.upper() if fee_asset else None,
+        note=note,
+        tx_hash=tx_hash,
+        external_id=external_id,
+        datasource=datasource,
+        import_batch_id=import_batch_id,
+        tags=tags,
+    )
+    session.add(tx)
+    session.flush()
+    return tx
+
+
+def get_transaction(session: Session, tx_id: int) -> Optional[Transaction]:
+    return session.get(Transaction, tx_id)
+
+
+def list_transactions(
+    session: Session,
+    *,
+    account_id: Optional[int] = None,
+    asset_symbol: Optional[str] = None,
+    side: Optional[TxSide] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Transaction]:
+    stmt = select(Transaction)
+    if account_id is not None:
+        stmt = stmt.where(Transaction.account_id == account_id)
+    if asset_symbol:
+        stmt = stmt.where(Transaction.asset_symbol == asset_symbol.upper())
+    if side is not None:
+        stmt = stmt.where(Transaction.side == side)
+    if since is not None:
+        stmt = stmt.where(Transaction.ts >= since)
+    if until is not None:
+        stmt = stmt.where(Transaction.ts <= until)
+    stmt = stmt.order_by(Transaction.ts.desc()).limit(limit).offset(offset)
+    return list(session.exec(stmt))
+
+
+def delete_transaction(session: Session, tx_id: int) -> bool:
+    tx = get_transaction(session, tx_id)
+    if not tx:
+        return False
+    session.delete(tx)
+    session.flush()
+    return True
+
+
+# Price helpers
+def upsert_price(
+    session: Session,
+    *,
+    asset_symbol: str,
+    quote_ccy: str,
+    ts: datetime,
+    price,
+    source: str = "coinmarketcap",
+) -> Price:
+    # Try find existing unique row
+    stmt = select(Price).where(
+        (Price.asset_symbol == asset_symbol.upper())
+        & (Price.quote_ccy == quote_ccy.upper())
+        & (Price.ts == ts)
+    )
+    existing = session.exec(stmt).first()
+    if existing:
+        existing.price = price
+        existing.source = source
+        session.add(existing)
+        session.flush()
+        return existing
+    # ensure asset exists
+    ensure_asset(session, asset_symbol)
+    row = Price(
+        asset_symbol=asset_symbol.upper(),
+        quote_ccy=quote_ccy.upper(),
+        ts=ts,
+        price=price,
+        source=source,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def list_prices(
+    session: Session,
+    *,
+    asset_symbol: str,
+    quote_ccy: str = "USD",
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: int = 1000,
+    offset: int = 0,
+) -> list[Price]:
+    stmt = select(Price).where(Price.asset_symbol == asset_symbol.upper(), Price.quote_ccy == quote_ccy.upper())
+    if since is not None:
+        stmt = stmt.where(Price.ts >= since)
+    if until is not None:
+        stmt = stmt.where(Price.ts <= until)
+    stmt = stmt.order_by(Price.ts.desc()).limit(limit).offset(offset)
+    return list(session.exec(stmt))
+

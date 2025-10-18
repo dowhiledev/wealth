@@ -20,10 +20,12 @@ def get_engine(db_path: str):
 
 def init_db(db_path: str):
     """Create the SQLite database file and all known tables."""
+    # Import models so metadata is populated
+    from . import models  # noqa: F401
+
     engine = get_engine(db_path)
     # Connect once to ensure the file is created
     with engine.connect():
         pass
     SQLModel.metadata.create_all(engine)
     return engine
-
