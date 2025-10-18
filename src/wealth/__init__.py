@@ -105,16 +105,22 @@ def price_sync(
     until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency (e.g., USD)"),
     interval: str = typer.Option("1d", "--interval", help="Interval: 1d|daily"),
+    provider: str = typer.Option("coinmarketcap", "--provider", help="Price provider: coinmarketcap|coindesk"),
 ) -> None:
     """Fetch historical prices from CoinMarketCap and store in DB."""
     # Ensure providers are registered
     import wealth.datasources  # noqa: F401
     from wealth.datasources.coinmarketcap import CoinMarketCapPriceSource
+    from wealth.datasources.coindesk_legacy import CoindeskLegacyPriceSource
 
     cfg = get_config()
     until = until or datetime.utcnow()
-    # Allow sandbox override via CLI
-    src = CoinMarketCapPriceSource()
+    if provider.lower() == "coinmarketcap":
+        src = CoinMarketCapPriceSource()
+    elif provider.lower() == "coindesk":
+        src = CoindeskLegacyPriceSource()
+    else:
+        raise typer.BadParameter("Unsupported provider; choose coinmarketcap or coindesk")
     symbols = [s.strip().upper() for s in assets.split(",") if s.strip()]
 
     total = 0
@@ -137,12 +143,18 @@ def price_sync(
 def price_quote(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency"),
+    provider: str = typer.Option("coinmarketcap", "--provider", help="Price provider: coinmarketcap|coindesk"),
 ) -> None:
     """Fetch and display the latest quote from CoinMarketCap."""
     import wealth.datasources  # noqa
     from wealth.datasources.coinmarketcap import CoinMarketCapPriceSource
-    base_url_override = None
-    src = CoinMarketCapPriceSource()
+    from wealth.datasources.coindesk_legacy import CoindeskLegacyPriceSource
+    if provider.lower() == "coinmarketcap":
+        src = CoinMarketCapPriceSource()
+    elif provider.lower() == "coindesk":
+        src = CoindeskLegacyPriceSource()
+    else:
+        raise typer.BadParameter("Unsupported provider; choose coinmarketcap or coindesk")
     q = src.get_quote(asset, quote)
     typer.echo(f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()}")
 
