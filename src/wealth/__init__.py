@@ -266,6 +266,11 @@ from .cli.export_cmd import app as export_app
 from .cli.chart import app as chart_app
 from .cli.report import app as report_app
 from .cli.context_cmd import app as context_app
+import subprocess
+import shutil
+import threading
+import time as _time
+from uvicorn import Config as UvicornConfig, Server as UvicornServer
 
 app.add_typer(account_app, name="account")
 app.add_typer(tx_app, name="tx")
@@ -363,3 +368,53 @@ def portfolio_chart(
 
 def main() -> None:
     app()
+
+
+@app.command("api")
+def run_api(port: int = typer.Option(8001, "--port"), host: str = typer.Option("127.0.0.1", "--host")) -> None:
+    cfg = get_config()
+    init_db(cfg.db_path)
+    from wealth.api.server import app as fastapi_app
+    server = UvicornServer(UvicornConfig(fastapi_app, host=host, port=port, log_level="info"))
+    server.run()
+
+
+@app.command("ui")
+def run_ui(
+    ui_path: str = typer.Option("src/wealth/ui", "--ui-path", help="Path to Next.js UI project"),
+    api_port: int = typer.Option(8001, "--api-port"),
+    api_host: str = typer.Option("127.0.0.1", "--api-host"),
+    ui_cmd: str = typer.Option("npm run dev", "--ui-cmd", help="Command to start UI dev server"),
+) -> None:
+    """Start the FastAPI backend and Next.js dev server."""
+    cfg = get_config()
+    init_db(cfg.db_path)
+
+    from wealth.api.server import app as fastapi_app
+    server = UvicornServer(UvicornConfig(fastapi_app, host=api_host, port=api_port, log_level="info"))
+
+    # Start backend in a separate thread
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    _time.sleep(0.5)
+    console.print(Panel.fit(f"API running at http://{api_host}:{api_port} (docs at /docs)", border_style="green"))
+
+    # Start Next.js UI
+    if not shutil.which(ui_cmd.split()[0]):
+        console.print("[yellow]Note: UI command not found. Please run the UI manually.[/yellow]")
+        console.print(f"cd {ui_path} && {ui_cmd}")
+        console.print("Backend API remains running above.")
+        t.join()
+        return
+
+    env = dict(**os.environ)
+    env["NEXT_PUBLIC_API_BASE"] = f"http://{api_host}:{api_port}"
+    try:
+        proc = subprocess.Popen(ui_cmd, cwd=ui_path, shell=True, env=env)
+        console.print(Panel.fit(f"UI starting with {ui_cmd} in {ui_path}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
+        proc.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Server will stop when process exits; thread is daemon
+        console.print("[yellow]Shutting down...[/yellow]")
