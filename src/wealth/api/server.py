@@ -21,6 +21,10 @@ from wealth.db.repo import (
     delete_transaction,
 )
 from wealth.db.models import AccountType, TxSide
+from wealth.core.valuation import summarize_portfolio
+from sqlmodel import select
+from sqlalchemy import func
+from wealth.db import models as dbm
 
 
 app = FastAPI(title="Wealth API", version="0.1.0")
@@ -200,3 +204,44 @@ def api_delete_tx(tx_id: int):
             raise HTTPException(status_code=404, detail="Transaction not found")
     return {"ok": True}
 
+
+class PositionOut(BaseModel):
+    asset: str
+    qty: Decimal
+    price: Optional[Decimal] = None
+    price_ts: Optional[datetime] = None
+    value: Optional[Decimal] = None
+    cost_open: Optional[Decimal] = None
+    unrealized_pnl: Optional[Decimal] = None
+    realized_pnl: Decimal
+
+
+class TotalsOut(BaseModel):
+    value: Decimal
+    cost_open: Decimal
+    unrealized: Decimal
+    realized: Decimal
+
+
+class PortfolioSummary(BaseModel):
+    positions: list[PositionOut]
+    totals: TotalsOut
+
+
+@app.get("/portfolio/summary", response_model=PortfolioSummary)
+def api_portfolio_summary(quote: str = "USD", account_id: Optional[int] = None):
+    cfg = get_config()
+    with session_scope(cfg.db_path) as s:
+        positions, totals = summarize_portfolio(s, as_of=datetime.utcnow(), quote=quote, account_id=account_id)
+        pos = [PositionOut(**p.__dict__) for p in positions]
+        tot = TotalsOut(**totals)  # type: ignore[arg-type]
+        return PortfolioSummary(positions=pos, totals=tot)
+
+
+@app.get("/stats")
+def api_stats():
+    cfg = get_config()
+    with session_scope(cfg.db_path) as s:
+        accounts_count = s.exec(select(func.count(dbm.Account.id))).one()
+        tx_count = s.exec(select(func.count(dbm.Transaction.id))).one()
+    return {"accounts": accounts_count, "transactions": tx_count}

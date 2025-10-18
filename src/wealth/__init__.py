@@ -13,7 +13,17 @@ from rich.panel import Panel
 
 from .core.config import get_config
 from .db.engine import init_db
-from .db.repo import session_scope, upsert_price, list_prices, get_asset_preference, set_asset_preference
+from .db.repo import (
+    session_scope,
+    upsert_price,
+    list_prices,
+    get_asset_preference,
+    set_asset_preference,
+    create_account,
+    list_accounts,
+    create_transaction,
+)
+from .db.models import AccountType, TxSide
 from .core.valuation import summarize_portfolio
 from wealth.cli.ui import fmt_decimal, fmt_money, colorize_pnl
 from wealth.core.context import load_context
@@ -368,6 +378,72 @@ def portfolio_chart(
 
 def main() -> None:
     app()
+
+
+@app.command("seed")
+def seed(
+    reset: bool = typer.Option(False, "--reset", help="Delete existing DB file before seeding"),
+    with_prices: bool = typer.Option(True, "--with-prices/--no-prices", help="Seed synthetic daily prices"),
+    days: int = typer.Option(180, "--days", help="Days of history for synthetic prices"),
+    quote: str = typer.Option("USD", "--quote", help="Quote currency for prices"),
+) -> None:
+    """Initialize the DB with mock accounts, transactions, and optional synthetic prices."""
+    from decimal import Decimal
+    from datetime import timedelta
+    import math
+
+    cfg = get_config()
+    db_path = cfg.db_path
+    # Optional reset (dangerous)
+    if reset and os.path.exists(db_path):
+        os.remove(db_path)
+    init_db(db_path)
+
+    # Skip if already seeded (unless reset)
+    with session_scope(db_path) as s:
+        existing = list_accounts(s, limit=1)
+        if existing and not reset:
+            console.print("[yellow]DB already has accounts. Use --reset to start fresh.[/yellow]")
+            raise typer.Exit(code=0)
+
+    # Create sample accounts
+    with session_scope(db_path) as s:
+        acc1 = create_account(s, name="Main Exchange", type_=AccountType.exchange, datasource="manual", currency="USD")
+        acc2 = create_account(s, name="Cold Wallet", type_=AccountType.wallet, datasource="manual", currency="USD")
+        acc1_id = acc1.id
+        acc2_id = acc2.id
+
+    now = datetime.utcnow()
+    t = lambda d: now - timedelta(days=d)
+
+    # Create sample transactions
+    with session_scope(db_path) as s:
+        # BTC buys on Main Exchange
+        create_transaction(s, ts=t(120), account_id=acc1_id, asset_symbol="BTC", side=TxSide.buy, qty=Decimal("0.25"), price_quote=Decimal("60000"), total_quote=Decimal("15000"), quote_ccy=quote, note="Seed: BTC buy")
+        create_transaction(s, ts=t(90), account_id=acc1_id, asset_symbol="BTC", side=TxSide.buy, qty=Decimal("0.15"), price_quote=Decimal("62000"), total_quote=Decimal("9300"), quote_ccy=quote)
+        # ETH buys
+        create_transaction(s, ts=t(85), account_id=acc1_id, asset_symbol="ETH", side=TxSide.buy, qty=Decimal("1.50"), price_quote=Decimal("3000"), total_quote=Decimal("4500"), quote_ccy=quote)
+        create_transaction(s, ts=t(60), account_id=acc1_id, asset_symbol="ETH", side=TxSide.buy, qty=Decimal("0.75"), price_quote=Decimal("3200"), total_quote=Decimal("2400"), quote_ccy=quote)
+        # Transfer some BTC to Cold Wallet
+        create_transaction(s, ts=t(58), account_id=acc1_id, asset_symbol="BTC", side=TxSide.transfer_out, qty=Decimal("0.05"), quote_ccy=quote, note="Move to cold wallet")
+        create_transaction(s, ts=t(58), account_id=acc2_id, asset_symbol="BTC", side=TxSide.transfer_in, qty=Decimal("0.05"), quote_ccy=quote, note="From exchange")
+        # A sell to realize PnL
+        create_transaction(s, ts=t(30), account_id=acc1_id, asset_symbol="ETH", side=TxSide.sell, qty=Decimal("0.50"), price_quote=Decimal("3500"), total_quote=Decimal("1750"), quote_ccy=quote)
+
+    # Seed synthetic daily prices
+    if with_prices:
+        start = now - timedelta(days=days)
+        with session_scope(db_path) as s:
+            for i in range(days + 1):
+                ts = start + timedelta(days=i)
+                # BTC synthetic
+                btc = Decimal(str(60000 + 5000 * math.sin(i / 14.0)))
+                upsert_price(s, asset_symbol="BTC", quote_ccy=quote, ts=ts, price=btc, source="seed")
+                # ETH synthetic
+                eth = Decimal(str(3000 + 400 * math.sin(i / 10.0)))
+                upsert_price(s, asset_symbol="ETH", quote_ccy=quote, ts=ts, price=eth, source="seed")
+
+    console.print(Panel.fit("Seed data created: 2 accounts, sample transactions, and synthetic prices.", border_style="green"))
 
 
 @app.command("api")
