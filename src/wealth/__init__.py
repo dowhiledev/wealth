@@ -10,6 +10,7 @@ import typer
 from .core.config import get_config
 from .db.engine import init_db
 from .db.repo import session_scope, upsert_price, list_prices
+from .core.valuation import summarize_portfolio
 
 
 app = typer.Typer(help="Wealth CLI — manage crypto transactions and reports.")
@@ -174,6 +175,41 @@ app.add_typer(account_app, name="account")
 app.add_typer(tx_app, name="tx")
 app.add_typer(import_app, name="import")
 app.add_typer(export_app, name="export")
+
+
+portfolio_app = typer.Typer(help="Portfolio views")
+
+
+@portfolio_app.command("summary")
+def portfolio_summary(
+    as_of: Optional[datetime] = typer.Option(None, "--as-of", help="As-of date/time (ISO); defaults to now"),
+    quote: str = typer.Option("USD", "--quote", help="Quote currency for valuation"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
+) -> None:
+    cfg = get_config()
+    as_of = as_of or datetime.utcnow()
+    with session_scope(cfg.db_path) as s:
+        positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
+    if not positions:
+        typer.echo("No holdings as of the specified time.")
+        raise typer.Exit(code=0)
+    typer.echo(f"Portfolio summary as of {as_of.isoformat()} in {quote}:")
+    typer.echo("asset  qty                 price           value           cost_open       unrealized      realized")
+    for p in positions:
+        price_s = f"{p.price}" if p.price is not None else "N/A"
+        value_s = f"{p.value}" if p.value is not None else "N/A"
+        cost_s = f"{p.cost_open}" if p.cost_open is not None else "N/A"
+        unreal_s = f"{p.unrealized_pnl}" if p.unrealized_pnl is not None else "N/A"
+        typer.echo(
+            f"{p.asset:<5} {p.qty:<18} {price_s:<15} {value_s:<15} {cost_s:<15} {unreal_s:<15} {p.realized_pnl}"
+        )
+    typer.echo("Totals:")
+    typer.echo(
+        f"value={totals['value']} cost_open={totals['cost_open']} unrealized={totals['unrealized']} realized={totals['realized']}"
+    )
+
+
+app.add_typer(portfolio_app, name="portfolio")
 
 
 def main() -> None:

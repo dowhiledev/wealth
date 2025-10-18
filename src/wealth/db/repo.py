@@ -340,3 +340,20 @@ def list_prices(
         stmt = stmt.where(Price.ts <= until)
     stmt = stmt.order_by(Price.ts.desc()).limit(limit).offset(offset)
     return list(session.exec(stmt))
+
+
+def get_last_price(
+    session: Session,
+    *,
+    asset_symbol: str,
+    quote_ccy: str = "USD",
+    as_of: datetime | None = None,
+) -> Price | None:
+    stmt = select(Price).where(
+        Price.asset_symbol == asset_symbol.upper(),
+        Price.quote_ccy == quote_ccy.upper(),
+    )
+    if as_of is not None:
+        stmt = stmt.where(Price.ts <= as_of)
+    stmt = stmt.order_by(Price.ts.desc()).limit(1)
+    return session.exec(stmt).first()
