@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 
 from wealth.core.config import get_config
+from wealth.core.context import load_context
 from wealth.datasources.generic_csv import GenericCSVImportSource
 from wealth.db.models import TxSide
 from wealth.db.repo import (
@@ -25,14 +26,19 @@ app = typer.Typer(help="Import data")
 @app.command("csv")
 def import_csv(
     file: Path = typer.Option(..., "--file", exists=True, readable=True, help="Path to CSV file"),
-    account_id: int = typer.Option(..., "--account-id", help="Account id to assign to all rows"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Account id to assign to all rows (defaults to context)"),
     mapping_file: Optional[Path] = typer.Option(None, "--mapping-file", help="JSON file mapping canonical->csv columns"),
-    datasource: Optional[str] = typer.Option("generic_csv", "--datasource", help="Datasource label to record"),
+    datasource: Optional[str] = typer.Option(None, "--datasource", help="Datasource label to record (defaults to context or generic_csv)"),
     dedupe_by: str = typer.Option("external_id", "--dedupe-by", help="external_id|tx_hash|none"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Parse and validate without writing"),
 ):
     cfg = get_config()
     mapping = None
+    ctx = load_context()
+    account_id = account_id or ctx.account_id
+    datasource = datasource or ctx.datasource or "generic_csv"
+    if account_id is None:
+        raise typer.BadParameter("--account-id is required (set via --account-id or `wealth context set account_id <id>`)" )
     if mapping_file:
         with open(mapping_file, "r", encoding="utf-8") as f:
             mapping = json.load(f)
@@ -88,4 +94,3 @@ def import_csv(
             summary=f"Inserted {inserted}, skipped {skipped} (dedupe_by={dedupe_by})",
         )
     typer.echo(f"Imported {inserted} rows, skipped {skipped} from {file}")
-

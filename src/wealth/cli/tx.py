@@ -8,6 +8,7 @@ import typer
 from wealth.cli.ui import console, fmt_decimal, fmt_money, success_panel
 
 from wealth.core.config import get_config
+from wealth.core.context import load_context
 from wealth.db.models import TxSide
 from wealth.db.repo import (
     session_scope,
@@ -24,7 +25,7 @@ app = typer.Typer(help="Manage transactions")
 
 @app.command("add")
 def add(
-    account_id: int = typer.Option(..., "--account-id"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     side: TxSide = typer.Option(..., "--side", case_sensitive=False),
     qty: str = typer.Option(..., "--qty"),
@@ -42,6 +43,7 @@ def add(
     tags: Optional[str] = typer.Option(None, "--tags"),
 ):
     cfg = get_config()
+    ctx = load_context()
     # Convert decimals from strings
     def _to_dec(x: Optional[str]) -> Optional[Decimal]:
         if x is None:
@@ -55,7 +57,7 @@ def add(
         tx = create_transaction(
             s,
             ts=ts or datetime.utcnow(),
-            account_id=account_id,
+            account_id=account_id or ctx.account_id or -1,
             asset_symbol=asset,
             side=side,
             qty=_to_dec(qty),
@@ -71,12 +73,14 @@ def add(
             import_batch_id=import_batch_id,
             tags=tags,
         )
+        if (account_id or ctx.account_id) is None:
+            raise typer.BadParameter("--account-id is required (set via --account-id or `wealth context set account_id <id>`)" )
         console.print(success_panel(f"Created tx id={tx.id} asset={tx.asset_symbol} side={tx.side} qty={fmt_decimal(tx.qty)}"))
 
 
 @app.command("list")
 def list_(
-    account_id: Optional[int] = typer.Option(None, "--account-id"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
     asset: Optional[str] = typer.Option(None, "--asset"),
     side: Optional[TxSide] = typer.Option(None, "--side", case_sensitive=False),
     since: Optional[datetime] = typer.Option(None, "--since"),
@@ -85,11 +89,12 @@ def list_(
     offset: int = typer.Option(0, "--offset"),
 ):
     cfg = get_config()
+    ctx = load_context()
     from rich.table import Table
     with session_scope(cfg.db_path) as s:
         rows = list_transactions(
             s,
-            account_id=account_id,
+            account_id=account_id or ctx.account_id,
             asset_symbol=asset,
             side=side,
             since=since,
@@ -131,7 +136,7 @@ def list_(
 def edit(
     id: int = typer.Option(..., "--id"),
     ts: Optional[datetime] = typer.Option(None, "--ts"),
-    account_id: Optional[int] = typer.Option(None, "--account-id"),
+    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
     asset: Optional[str] = typer.Option(None, "--asset"),
     side: Optional[TxSide] = typer.Option(None, "--side", case_sensitive=False),
     qty: Optional[str] = typer.Option(None, "--qty"),
@@ -148,6 +153,7 @@ def edit(
     tags: Optional[str] = typer.Option(None, "--tags"),
 ):
     cfg = get_config()
+    ctx = load_context()
     def _to_dec(x: Optional[str]) -> Optional[Decimal]:
         if x is None:
             return None
@@ -161,7 +167,7 @@ def edit(
             s,
             id,
             ts=ts,
-            account_id=account_id,
+            account_id=account_id or ctx.account_id,
             asset_symbol=asset,
             side=side,
             qty=_to_dec(qty),

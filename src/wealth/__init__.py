@@ -16,6 +16,7 @@ from .db.engine import init_db
 from .db.repo import session_scope, upsert_price, list_prices, get_asset_preference, set_asset_preference
 from .core.valuation import summarize_portfolio
 from wealth.cli.ui import fmt_decimal, fmt_money, colorize_pnl
+from wealth.core.context import load_context
 
 
 app = typer.Typer(help="Wealth CLI — manage crypto transactions and reports.")
@@ -112,7 +113,7 @@ def price_sync(
     assets: str = typer.Option(..., "--assets", help="Comma-separated symbols, e.g., BTC,ETH"),
     since: datetime = typer.Option(..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"),
     until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
-    quote: str = typer.Option("USD", "--quote", help="Quote currency (e.g., USD)"),
+    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
     interval: str = typer.Option("1d", "--interval", help="Interval: 1d|daily"),
     providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
 ) -> None:
@@ -124,7 +125,9 @@ def price_sync(
     cfg = get_config()
     until = until or datetime.utcnow()
     all_sources = get_price_sources()
-    default_order = [s.strip() for s in os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk").split(",") if s.strip()]
+    ctx = load_context()
+    quote = quote or ctx.quote or get_config().base_currency
+    default_order = [s.strip() for s in (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")).split(",") if s.strip()]
     cli_order = [s.strip() for s in providers.split(",")] if providers else None
     base_order = cli_order or default_order
     symbols = [s.strip().upper() for s in assets.split(",") if s.strip()]
@@ -185,15 +188,17 @@ def price_sync(
 @price_app.command("quote")
 def price_quote(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
-    quote: str = typer.Option("USD", "--quote", help="Quote currency"),
+    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
     providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
 ) -> None:
     """Fetch and display the latest quote using provider fallback order."""
     import wealth.datasources  # noqa
     from wealth.datasources.registry import get_price_sources
     cfg = get_config()
+    ctx = load_context()
+    quote = quote or ctx.quote or cfg.base_currency
     all_sources = get_price_sources()
-    default_order = [s.strip() for s in os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk").split(",") if s.strip()]
+    default_order = [s.strip() for s in (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")).split(",") if s.strip()]
     cli_order = [s.strip() for s in providers.split(",")] if providers else None
     base_order = cli_order or default_order
     sym = asset.strip().upper()
@@ -231,11 +236,13 @@ def price_quote(
 def price_show(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     since: Optional[datetime] = typer.Option(None, "--since", help="Start date/time (ISO)"),
-    quote: str = typer.Option("USD", "--quote", help="Quote currency"),
+    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
     limit: int = typer.Option(20, "--limit", help="Limit number of rows"),
 ) -> None:
     """Show cached prices from the local DB."""
     cfg = get_config()
+    ctx = load_context()
+    quote = quote or ctx.quote or cfg.base_currency
     with session_scope(cfg.db_path) as s:
         rows = list_prices(s, asset_symbol=asset, quote_ccy=quote, since=since, limit=limit)
     if not rows:
@@ -258,6 +265,7 @@ from .cli.import_cmd import app as import_app
 from .cli.export_cmd import app as export_app
 from .cli.chart import app as chart_app
 from .cli.report import app as report_app
+from .cli.context_cmd import app as context_app
 
 app.add_typer(account_app, name="account")
 app.add_typer(tx_app, name="tx")
@@ -265,6 +273,7 @@ app.add_typer(import_app, name="import")
 app.add_typer(export_app, name="export")
 app.add_typer(chart_app, name="chart")
 app.add_typer(report_app, name="report")
+app.add_typer(context_app, name="context")
 
 
 portfolio_app = typer.Typer(help="Portfolio views")
@@ -273,11 +282,13 @@ portfolio_app = typer.Typer(help="Portfolio views")
 @portfolio_app.command("summary")
 def portfolio_summary(
     as_of: Optional[datetime] = typer.Option(None, "--as-of", help="As-of date/time (ISO); defaults to now"),
-    quote: str = typer.Option("USD", "--quote", help="Quote currency for valuation"),
+    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency for valuation (defaults to context or config)"),
     account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
 ) -> None:
     cfg = get_config()
+    ctx = load_context()
     as_of = as_of or datetime.utcnow()
+    quote = quote or ctx.quote or cfg.base_currency
     with session_scope(cfg.db_path) as s:
         positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
     if not positions:
@@ -320,7 +331,7 @@ app.add_typer(portfolio_app, name="portfolio")
 def portfolio_chart(
     since: datetime = typer.Option(..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"),
     until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
-    quote: str = typer.Option("USD", "--quote", help="Quote currency for valuation"),
+    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency for valuation (defaults to context or config)"),
     account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
 ) -> None:
     """Render a terminal line chart of portfolio value over time."""
@@ -329,6 +340,8 @@ def portfolio_chart(
     from datetime import timedelta
 
     cfg = get_config()
+    ctx = load_context()
+    quote = quote or ctx.quote or cfg.base_currency
     until = until or datetime.utcnow()
     xs = []
     ys = []
