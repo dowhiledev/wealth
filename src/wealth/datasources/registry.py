@@ -23,6 +23,9 @@ def get_price_sources() -> Dict[str, Type[PriceDataSource]]:
     return dict(_PRICE_SOURCES)
 
 
+def get_price_source_cls(name: str) -> Type[PriceDataSource] | None:
+    return _PRICE_SOURCES.get(name)
+
+
 def get_import_sources() -> Dict[str, Type[TxImportSource]]:
     return dict(_IMPORT_SOURCES)
-

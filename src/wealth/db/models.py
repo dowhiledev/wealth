@@ -97,3 +97,8 @@ class Price(SQLModel, table=True):
         UniqueConstraint("asset_symbol", "quote_ccy", "ts", name="uq_price_symbol_quote_ts"),
         Index("ix_price_symbol_ts", "asset_symbol", "ts"),
     )
+
+
+class AssetPreference(SQLModel, table=True):
+    asset_symbol: str = Field(primary_key=True, foreign_key="asset.symbol")
+    preferred_price_source: Optional[str] = Field(default=None, index=True)

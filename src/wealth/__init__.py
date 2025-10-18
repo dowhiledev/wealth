@@ -4,12 +4,13 @@ import logging
 from typing import Optional
 from datetime import datetime
 import time
+import os
 
 import typer
 
 from .core.config import get_config
 from .db.engine import init_db
-from .db.repo import session_scope, upsert_price, list_prices
+from .db.repo import session_scope, upsert_price, list_prices, get_asset_preference, set_asset_preference
 from .core.valuation import summarize_portfolio
 
 
@@ -36,7 +37,13 @@ def _app_callback(
     """Global options and initialization."""
     _setup_logging(verbose)
     # Ensure .env is loaded early for all commands
-    _ = get_config()
+    cfg = get_config()
+    # Ensure DB exists and new tables are created (simple create_all)
+    try:
+        init_db(cfg.db_path)
+    except Exception:
+        # Best-effort; commands can also initialize explicitly
+        pass
 
 
 @app.command()
@@ -105,33 +112,67 @@ def price_sync(
     until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency (e.g., USD)"),
     interval: str = typer.Option("1d", "--interval", help="Interval: 1d|daily"),
-    provider: str = typer.Option("coinmarketcap", "--provider", help="Price provider: coinmarketcap|coindesk"),
+    providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
 ) -> None:
     """Fetch historical prices from CoinMarketCap and store in DB."""
     # Ensure providers are registered
     import wealth.datasources  # noqa: F401
-    from wealth.datasources.coinmarketcap import CoinMarketCapPriceSource
-    from wealth.datasources.coindesk_legacy import CoindeskLegacyPriceSource
+    from wealth.datasources.registry import get_price_sources
 
     cfg = get_config()
     until = until or datetime.utcnow()
-    if provider.lower() == "coinmarketcap":
-        src = CoinMarketCapPriceSource()
-    elif provider.lower() == "coindesk":
-        src = CoindeskLegacyPriceSource()
-    else:
-        raise typer.BadParameter("Unsupported provider; choose coinmarketcap or coindesk")
+    all_sources = get_price_sources()
+    default_order = [s.strip() for s in os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk").split(",") if s.strip()]
+    cli_order = [s.strip() for s in providers.split(",")] if providers else None
+    base_order = cli_order or default_order
     symbols = [s.strip().upper() for s in assets.split(",") if s.strip()]
 
     total = 0
     try:
         for sym in symbols:
-            typer.echo(f"Syncing {sym} {quote} {interval} from {since.date()} to {until.date()}...")
-            points = src.get_ohlcv(sym, start=since, end=until, interval=interval, quote=quote)
+            # Build order using per-asset preference then base order
             with session_scope(cfg.db_path) as s:
-                for p in points:
-                    upsert_price(s, asset_symbol=sym, quote_ccy=quote, ts=p.ts, price=p.close, source=src.id())
-            total += len(points)
+                preferred = get_asset_preference(s, sym)
+            order = []
+            if preferred:
+                order.append(preferred)
+            for name in base_order:
+                if name not in order:
+                    order.append(name)
+
+            last_err = None
+            success = False
+            for prov_name in order:
+                if prov_name not in all_sources:
+                    continue
+                try:
+                    src_cls = all_sources[prov_name]
+                    src = src_cls()  # type: ignore[call-arg]
+                except Exception as e:
+                    last_err = e
+                    continue
+                typer.echo(f"Syncing {sym} via {prov_name} {quote} {interval} from {since.date()} to {until.date()}...")
+                try:
+                    points = src.get_ohlcv(sym, start=since, end=until, interval=interval, quote=quote)
+                except Exception as e:
+                    last_err = e
+                    typer.echo(f"  Provider {prov_name} failed: {e}")
+                    continue
+                if not points:
+                    typer.echo(f"  Provider {prov_name} returned no data; trying next")
+                    continue
+                with session_scope(cfg.db_path) as s:
+                    for p in points:
+                        upsert_price(s, asset_symbol=sym, quote_ccy=quote, ts=p.ts, price=p.close, source=src.id())
+                    set_asset_preference(s, sym, src.id())
+                total += len(points)
+                success = True
+                break
+            if not success:
+                msg = f"Failed to sync {sym} from all providers"
+                if last_err:
+                    msg += f": last error: {last_err}"
+                raise RuntimeError(msg)
             time.sleep(0.25)  # be gentle with rate limits
     except Exception as e:
         typer.echo(f"Error during price sync: {e}")
@@ -143,20 +184,45 @@ def price_sync(
 def price_quote(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     quote: str = typer.Option("USD", "--quote", help="Quote currency"),
-    provider: str = typer.Option("coinmarketcap", "--provider", help="Price provider: coinmarketcap|coindesk"),
+    providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
 ) -> None:
-    """Fetch and display the latest quote from CoinMarketCap."""
+    """Fetch and display the latest quote using provider fallback order."""
     import wealth.datasources  # noqa
-    from wealth.datasources.coinmarketcap import CoinMarketCapPriceSource
-    from wealth.datasources.coindesk_legacy import CoindeskLegacyPriceSource
-    if provider.lower() == "coinmarketcap":
-        src = CoinMarketCapPriceSource()
-    elif provider.lower() == "coindesk":
-        src = CoindeskLegacyPriceSource()
-    else:
-        raise typer.BadParameter("Unsupported provider; choose coinmarketcap or coindesk")
-    q = src.get_quote(asset, quote)
-    typer.echo(f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()}")
+    from wealth.datasources.registry import get_price_sources
+    cfg = get_config()
+    all_sources = get_price_sources()
+    default_order = [s.strip() for s in os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk").split(",") if s.strip()]
+    cli_order = [s.strip() for s in providers.split(",")] if providers else None
+    base_order = cli_order or default_order
+    sym = asset.strip().upper()
+    with session_scope(cfg.db_path) as s:
+        preferred = get_asset_preference(s, sym)
+    order = []
+    if preferred:
+        order.append(preferred)
+    for name in base_order:
+        if name not in order:
+            order.append(name)
+
+    last_err = None
+    for prov_name in order:
+        if prov_name not in all_sources:
+            continue
+        try:
+            src_cls = all_sources[prov_name]
+            src = src_cls()  # type: ignore[call-arg]
+            q = src.get_quote(sym, quote)
+        except Exception as e:
+            last_err = e
+            continue
+        with session_scope(cfg.db_path) as s:
+            set_asset_preference(s, sym, src.id())
+        typer.echo(f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()} (via {src.id()})")
+        return
+    msg = f"Failed to fetch quote for {sym} from all providers"
+    if last_err:
+        msg += f": last error: {last_err}"
+    raise typer.Exit(code=1)
 
 
 @price_app.command("show")

@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 from sqlmodel import Session, select
 
 from .engine import get_engine
-from .models import Account, AccountType, Asset, Price, Transaction, TxSide, ImportBatch
+from .models import Account, AccountType, Asset, Price, Transaction, TxSide, ImportBatch, AssetPreference
 
 
 @contextmanager
@@ -357,3 +357,22 @@ def get_last_price(
         stmt = stmt.where(Price.ts <= as_of)
     stmt = stmt.order_by(Price.ts.desc()).limit(1)
     return session.exec(stmt).first()
+
+
+# Asset preference helpers
+def get_asset_preference(session: Session, symbol: str) -> Optional[str]:
+    row = session.get(AssetPreference, symbol.upper())
+    return row.preferred_price_source if row else None
+
+
+def set_asset_preference(session: Session, symbol: str, provider: Optional[str]) -> AssetPreference:
+    ensure_asset(session, symbol)
+    sym = symbol.upper()
+    row = session.get(AssetPreference, sym)
+    if row is None:
+        row = AssetPreference(asset_symbol=sym, preferred_price_source=provider)
+    else:
+        row.preferred_price_source = provider
+    session.add(row)
+    session.flush()
+    return row
