@@ -7,7 +7,7 @@ from typing import Iterable, Optional
 from sqlmodel import Session, select
 
 from .engine import get_engine
-from .models import Account, AccountType, Asset, Price, Transaction, TxSide
+from .models import Account, AccountType, Asset, Price, Transaction, TxSide, ImportBatch
 
 
 @contextmanager
@@ -248,6 +248,42 @@ def update_transaction(
     session.add(tx)
     session.flush()
     return tx
+
+
+# Import batches
+def create_import_batch(
+    session: Session,
+    *,
+    datasource: str | None,
+    source_file: str | None,
+    summary: str | None = None,
+) -> ImportBatch:
+    batch = ImportBatch(datasource=datasource, source_file=source_file, summary=summary)
+    session.add(batch)
+    session.flush()
+    return batch
+
+
+def update_import_batch_summary(session: Session, batch_id: int, summary: str) -> None:
+    batch = session.get(ImportBatch, batch_id)
+    if not batch:
+        return
+    batch.summary = summary
+    session.add(batch)
+    session.flush()
+
+
+# Dedupe helpers
+def find_tx_by_external_id(session: Session, *, datasource: str | None, external_id: str) -> Transaction | None:
+    stmt = select(Transaction).where(Transaction.external_id == external_id)
+    if datasource is not None:
+        stmt = stmt.where(Transaction.datasource == datasource)
+    return session.exec(stmt).first()
+
+
+def find_tx_by_tx_hash(session: Session, *, tx_hash: str) -> Transaction | None:
+    stmt = select(Transaction).where(Transaction.tx_hash == tx_hash)
+    return session.exec(stmt).first()
 
 
 # Price helpers

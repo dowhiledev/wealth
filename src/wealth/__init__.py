@@ -167,9 +167,13 @@ app.add_typer(price_app, name="price")
 # Domain subcommands
 from .cli.account import app as account_app
 from .cli.tx import app as tx_app
+from .cli.import_cmd import app as import_app
+from .cli.export_cmd import app as export_app
 
 app.add_typer(account_app, name="account")
 app.add_typer(tx_app, name="tx")
+app.add_typer(import_app, name="import")
+app.add_typer(export_app, name="export")
 
 
 def main() -> None:
