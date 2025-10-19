@@ -4,6 +4,7 @@ import {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
+  VisibilityState,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
@@ -16,12 +17,62 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatAmount } from "@/lib/utils";
 import type { Tx } from "@/lib/api";
+import { EditTransactionDialog } from "@/components/edit-transaction-dialog";
+import { api } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type Row = Tx;
 
-const columns: ColumnDef<Row>[] = [
+export function TransactionsTable({ rows, onChanged }: { rows: Row[]; onChanged?: () => void }) {
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: "ts", desc: true }]);
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = React.useState({});
+  const [pageSize, setPageSize] = React.useState<number>(10);
+
+  const columns: ColumnDef<Row>[] = React.useMemo(() => [
+  {
+    id: "select",
+    header: ({ table }) => (
+      <Checkbox
+        checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label="Select all"
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        onCheckedChange={(value) => row.toggleSelected(!!value)}
+        aria-label="Select row"
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+    size: 24,
+  },
   { accessorKey: "id", header: "ID" },
   {
     accessorKey: "ts",
@@ -44,19 +95,46 @@ const columns: ColumnDef<Row>[] = [
   { accessorKey: "price_quote", header: "Price", cell: ({ row }) => (row.original.price_quote != null ? formatAmount(row.original.price_quote) : "") },
   { accessorKey: "total_quote", header: "Total", cell: ({ row }) => (row.original.total_quote != null ? formatAmount(row.original.total_quote) : "") },
   { accessorKey: "quote_ccy", header: "CCY" },
-];
-
-export function TransactionsTable({ rows }: { rows: Row[] }) {
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: "ts", desc: true }]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [pageSize, setPageSize] = React.useState<number>(10);
+  { accessorKey: "fee_qty", header: "Fee Qty", cell: ({ row }) => (row.original.fee_qty != null ? formatAmount(row.original.fee_qty) : "") },
+  { accessorKey: "fee_asset", header: "Fee Asset" },
+  { accessorKey: "note", header: "Note", cell: ({ row }) => <span className="max-w-[240px] truncate inline-block align-top" title={row.original.note ?? undefined}>{row.original.note ?? ""}</span> },
+  { accessorKey: "tx_hash", header: "Hash", cell: ({ row }) => <span className="max-w-[240px] truncate inline-block align-top" title={row.original.tx_hash ?? undefined}>{row.original.tx_hash ?? ""}</span> },
+  { accessorKey: "datasource", header: "DS" },
+  {
+    id: "actions",
+    enableHiding: false,
+    cell: ({ row }) => {
+      const tx = row.original;
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-8 w-8 p-0">
+              <span className="sr-only">Open menu</span>
+              ⋯
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <EditTransactionDialog tx={tx} onSaved={onChanged}>
+              <DropdownMenuItem>Edit</DropdownMenuItem>
+            </EditTransactionDialog>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={async () => { await api.tx.remove(tx.id); onChanged?.(); }}>Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    },
+  },
+  ], [onChanged]);
 
   const table = useReactTable({
     data: rows,
     columns,
-    state: { sorting, columnFilters, pagination: { pageIndex: 0, pageSize } },
+    state: { sorting, columnFilters, columnVisibility, rowSelection, pagination: { pageIndex: 0, pageSize } },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -65,6 +143,7 @@ export function TransactionsTable({ rows }: { rows: Row[] }) {
 
   const assetFilter = table.getColumn("asset_symbol");
   const sideFilter = table.getColumn("side");
+  const selectedIds = table.getSelectedRowModel().rows.map((r) => (r.original as Row).id);
 
   return (
     <div className="space-y-3">
@@ -96,6 +175,58 @@ export function TransactionsTable({ rows }: { rows: Row[] }) {
             <SelectItem value="50">50 rows</SelectItem>
           </SelectContent>
         </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="ml-auto h-8">Columns</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {table
+              .getAllColumns()
+              .filter((column) => column.getCanHide())
+              .map((column) => {
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    className="capitalize"
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                  >
+                    {column.id}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {selectedIds.length > 0 && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="h-8">Delete Selected ({selectedIds.length})</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete selected transactions?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={async () => {
+                    for (const id of selectedIds) {
+                      await api.tx.remove(id);
+                    }
+                    table.resetRowSelection();
+                    onChanged?.();
+                  }}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
 
       <Table>
@@ -121,7 +252,7 @@ export function TransactionsTable({ rows }: { rows: Row[] }) {
         </TableHeader>
         <TableBody>
           {table.getRowModel().rows.map((row) => (
-            <TableRow key={row.id} className="hover:bg-muted/50">
+            <TableRow key={row.id} className="hover:bg-muted/50" data-state={row.getIsSelected() && "selected"}>
               {row.getVisibleCells().map((cell) => (
                 <TableCell key={cell.id}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}

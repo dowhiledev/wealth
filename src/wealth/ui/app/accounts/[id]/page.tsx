@@ -47,7 +47,7 @@ export default function AccountDetailPage() {
           <CardTitle>Transactions</CardTitle>
         </CardHeader>
         <CardContent>
-          <TransactionsTable rows={rows} />
+          <TransactionsTable rows={rows} onChanged={load} />
         </CardContent>
       </Card>
     </div>

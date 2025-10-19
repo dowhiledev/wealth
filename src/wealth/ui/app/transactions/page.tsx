@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TransactionsTable } from "@/components/transactions-table";
 import { toast } from "sonner";
 import { formatAmount } from "@/lib/utils";
 
@@ -125,38 +125,7 @@ export default function TransactionsPage() {
           <CardTitle>Transactions</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>TS</TableHead>
-                <TableHead>Acct</TableHead>
-                <TableHead>Asset</TableHead>
-                <TableHead>Side</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>CCY</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {txs.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell>{t.id}</TableCell>
-                  <TableCell>{new Date(t.ts).toLocaleString()}</TableCell>
-                  <TableCell>{t.account_id}</TableCell>
-                  <TableCell>{t.asset_symbol}</TableCell>
-                  <TableCell>{t.side}</TableCell>
-                  <TableCell>{formatAmount(t.qty)}</TableCell>
-                  <TableCell>{t.price_quote != null ? formatAmount(t.price_quote) : ""}</TableCell>
-                  <TableCell>{t.total_quote != null ? formatAmount(t.total_quote) : ""}</TableCell>
-                  <TableCell>{t.quote_ccy ?? ""}</TableCell>
-                  <TableCell className="text-right"><Button variant="destructive" size="sm" onClick={() => onDelete(t.id)}>Delete</Button></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <TransactionsTable rows={txs} onChanged={load} />
         </CardContent>
       </Card>
     </div>
