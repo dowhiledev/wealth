@@ -6,7 +6,7 @@ import { formatAmount } from "@/lib/utils";
 
 type Totals = { value: string | number; cost_open: string | number; unrealized: string | number; realized: string | number };
 
-export function WealthKPIs({ accountIds }: { accountIds?: number[] }) {
+export function WealthKPIs({ accountIds, showAccountsKPI = true }: { accountIds?: number[]; showAccountsKPI?: boolean }) {
   const [totals, setTotals] = useState<Totals | null>(null);
   const [counts, setCounts] = useState<{ accounts: number; transactions: number } | null>(null);
 
@@ -25,7 +25,7 @@ export function WealthKPIs({ accountIds }: { accountIds?: number[] }) {
       if (accountIds.length === 1) {
         const [summary, stats] = await Promise.all([
           fetch(`${base}/portfolio/summary?account_id=${accountIds[0]}`).then(r => r.json()),
-          fetch(`${base}/stats`).then(r => r.json()),
+          fetch(`${base}/stats?account_id=${accountIds[0]}`).then(r => r.json()),
         ]);
         setTotals(summary.totals);
         setCounts(stats);
@@ -80,14 +80,16 @@ export function WealthKPIs({ accountIds }: { accountIds?: number[] }) {
           </div>
         </CardHeader>
       </Card>
-      <Card className="min-w-0 @container/card">
-        <CardHeader>
-          <CardDescription>Accounts</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums leading-tight @[250px]/card:text-3xl">
-            {counts?.accounts ?? "-"}
-          </CardTitle>
-        </CardHeader>
-      </Card>
+      {showAccountsKPI && (
+        <Card className="min-w-0 @container/card">
+          <CardHeader>
+            <CardDescription>Accounts</CardDescription>
+            <CardTitle className="text-2xl font-semibold tabular-nums leading-tight @[250px]/card:text-3xl">
+              {counts?.accounts ?? "-"}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      )}
       <Card className="min-w-0 @container/card">
         <CardHeader>
           <CardDescription>Transactions</CardDescription>

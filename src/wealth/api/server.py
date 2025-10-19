@@ -239,9 +239,13 @@ def api_portfolio_summary(quote: str = "USD", account_id: Optional[int] = None):
 
 
 @app.get("/stats")
-def api_stats():
+def api_stats(account_id: Optional[int] = None):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
+        if account_id is not None:
+            accounts_count = s.exec(select(func.count(dbm.Account.id)).where(dbm.Account.id == account_id)).one()
+            tx_count = s.exec(select(func.count(dbm.Transaction.id)).where(dbm.Transaction.account_id == account_id)).one()
+            return {"accounts": accounts_count, "transactions": tx_count}
         accounts_count = s.exec(select(func.count(dbm.Account.id))).one()
         tx_count = s.exec(select(func.count(dbm.Transaction.id))).one()
     return {"accounts": accounts_count, "transactions": tx_count}
