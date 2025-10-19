@@ -30,6 +30,13 @@ export function SiteHeader() {
         </div>
       );
     }
+    if (pathname === "/transactions") {
+      return (
+        <div className="flex items-center gap-2">
+          <AddTransactionButton accounts={accounts} onCreated={triggerReload} size="sm" />
+        </div>
+      );
+    }
     const match = pathname.match(/^\/accounts\/(\d+)/);
     if (match) {
       const id = Number(match[1]);

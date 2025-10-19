@@ -31,6 +31,7 @@ import { formatAmount } from "@/lib/utils";
 import type { Tx } from "@/lib/api";
 import { EditTransactionDialog } from "@/components/edit-transaction-dialog";
 import { api } from "@/lib/api";
+import Link from "next/link";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,9 +49,21 @@ type Row = Tx;
 export function TransactionsTable({ rows, onChanged }: { rows: Row[]; onChanged?: () => void }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "ts", desc: true }]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({ fee_qty: false, fee_asset: false, tx_hash: false });
   const [rowSelection, setRowSelection] = React.useState({});
   const [pageSize, setPageSize] = React.useState<number>(10);
+  const [acctMap, setAcctMap] = React.useState<Record<number, string>>({});
+
+  React.useEffect(() => {
+    api.accounts
+      .list()
+      .then((list) => {
+        const m: Record<number, string> = {};
+        for (const a of list) m[a.id] = a.name;
+        setAcctMap(m);
+      })
+      .catch(() => {});
+  }, []);
 
   const columns: ColumnDef<Row>[] = React.useMemo(() => [
   {
@@ -80,7 +93,19 @@ export function TransactionsTable({ rows, onChanged }: { rows: Row[]; onChanged?
     cell: ({ row }) => new Date(row.original.ts).toLocaleString(),
     sortingFn: (a, b) => new Date(a.original.ts).getTime() - new Date(b.original.ts).getTime(),
   },
-  { accessorKey: "account_id", header: "Acct" },
+  {
+    accessorKey: "account_id",
+    header: "Acct",
+    cell: ({ row }) => {
+      const id = row.original.account_id;
+      const name = acctMap[id] ?? `#${id}`;
+      return (
+        <Link href={`/accounts/${id}`} className="underline">
+          {name}
+        </Link>
+      );
+    },
+  },
   { accessorKey: "asset_symbol", header: "Asset" },
   {
     accessorKey: "side",
