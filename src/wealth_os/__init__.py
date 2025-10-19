@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 from datetime import datetime
-import time
+import time as _time
 import os
 
 import typer
@@ -27,6 +27,18 @@ from .db.models import AccountType, TxSide
 from .core.valuation import summarize_portfolio
 from wealth_os.cli.ui import fmt_decimal, fmt_money, colorize_pnl
 from wealth_os.core.context import load_context
+from .cli.account import app as account_app
+from .cli.tx import app as tx_app
+from .cli.import_cmd import app as import_app
+from .cli.export_cmd import app as export_app
+from .cli.chart import app as chart_app
+from .cli.report import app as report_app
+from .cli.context_cmd import app as context_app
+import subprocess
+import shutil
+import threading
+from uvicorn import Config as UvicornConfig, Server as UvicornServer
+from pathlib import Path
 
 
 app = typer.Typer(help="Wealth CLI — manage crypto transactions and reports.")
@@ -48,7 +60,9 @@ def _setup_logging(verbosity: int) -> None:
 @app.callback()
 def _app_callback(
     ctx: typer.Context,
-    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase verbosity (-v, -vv)"),
+    verbose: int = typer.Option(
+        0, "--verbose", "-v", count=True, help="Increase verbosity (-v, -vv)"
+    ),
 ) -> None:
     """Global options and initialization."""
     _setup_logging(verbose)
@@ -120,12 +134,24 @@ price_app = typer.Typer(help="Price data commands")
 
 @price_app.command("sync")
 def price_sync(
-    assets: str = typer.Option(..., "--assets", help="Comma-separated symbols, e.g., BTC,ETH"),
-    since: datetime = typer.Option(..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"),
-    until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
-    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
+    assets: str = typer.Option(
+        ..., "--assets", help="Comma-separated symbols, e.g., BTC,ETH"
+    ),
+    since: datetime = typer.Option(
+        ..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"
+    ),
+    until: Optional[datetime] = typer.Option(
+        None, "--until", help="End date/time; defaults to now"
+    ),
+    quote: Optional[str] = typer.Option(
+        None, "--quote", help="Quote currency (defaults to context or config)"
+    ),
     interval: str = typer.Option("1d", "--interval", help="Interval: 1d|daily"),
-    providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
+    providers: Optional[str] = typer.Option(
+        None,
+        "--providers",
+        help="Comma-separated provider order, e.g., coindesk,coinmarketcap",
+    ),
 ) -> None:
     """Fetch historical prices from CoinMarketCap and store in DB."""
     # Ensure providers are registered
@@ -137,7 +163,14 @@ def price_sync(
     all_sources = get_price_sources()
     ctx = load_context()
     quote = quote or ctx.quote or get_config().base_currency
-    default_order = [s.strip() for s in (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")).split(",") if s.strip()]
+    default_order = [
+        s.strip()
+        for s in (
+            ctx.providers
+            or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")
+        ).split(",")
+        if s.strip()
+    ]
     cli_order = [s.strip() for s in providers.split(",")] if providers else None
     base_order = cli_order or default_order
     symbols = [s.strip().upper() for s in assets.split(",") if s.strip()]
@@ -166,9 +199,13 @@ def price_sync(
                 except Exception as e:
                     last_err = e
                     continue
-                typer.echo(f"Syncing {sym} via {prov_name} {quote} {interval} from {since.date()} to {until.date()}...")
+                typer.echo(
+                    f"Syncing {sym} via {prov_name} {quote} {interval} from {since.date()} to {until.date()}..."
+                )
                 try:
-                    points = src.get_ohlcv(sym, start=since, end=until, interval=interval, quote=quote)
+                    points = src.get_ohlcv(
+                        sym, start=since, end=until, interval=interval, quote=quote
+                    )
                 except Exception as e:
                     last_err = e
                     typer.echo(f"  Provider {prov_name} failed: {e}")
@@ -178,7 +215,14 @@ def price_sync(
                     continue
                 with session_scope(cfg.db_path) as s:
                     for p in points:
-                        upsert_price(s, asset_symbol=sym, quote_ccy=quote, ts=p.ts, price=p.close, source=src.id())
+                        upsert_price(
+                            s,
+                            asset_symbol=sym,
+                            quote_ccy=quote,
+                            ts=p.ts,
+                            price=p.close,
+                            source=src.id(),
+                        )
                     set_asset_preference(s, sym, src.id())
                 total += len(points)
                 success = True
@@ -188,7 +232,7 @@ def price_sync(
                 if last_err:
                     msg += f": last error: {last_err}"
                 raise RuntimeError(msg)
-            time.sleep(0.25)  # be gentle with rate limits
+            _time.sleep(0.25)  # be gentle with rate limits
     except Exception as e:
         typer.echo(f"Error during price sync: {e}")
         raise typer.Exit(code=1)
@@ -198,17 +242,31 @@ def price_sync(
 @price_app.command("quote")
 def price_quote(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
-    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
-    providers: Optional[str] = typer.Option(None, "--providers", help="Comma-separated provider order, e.g., coindesk,coinmarketcap"),
+    quote: Optional[str] = typer.Option(
+        None, "--quote", help="Quote currency (defaults to context or config)"
+    ),
+    providers: Optional[str] = typer.Option(
+        None,
+        "--providers",
+        help="Comma-separated provider order, e.g., coindesk,coinmarketcap",
+    ),
 ) -> None:
     """Fetch and display the latest quote using provider fallback order."""
     import wealth_os.datasources  # noqa
     from wealth_os.datasources.registry import get_price_sources
+
     cfg = get_config()
     ctx = load_context()
     quote = quote or ctx.quote or cfg.base_currency
     all_sources = get_price_sources()
-    default_order = [s.strip() for s in (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")).split(",") if s.strip()]
+    default_order = [
+        s.strip()
+        for s in (
+            ctx.providers
+            or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")
+        ).split(",")
+        if s.strip()
+    ]
     cli_order = [s.strip() for s in providers.split(",")] if providers else None
     base_order = cli_order or default_order
     sym = asset.strip().upper()
@@ -234,7 +292,9 @@ def price_quote(
             continue
         with session_scope(cfg.db_path) as s:
             set_asset_preference(s, sym, src.id())
-        typer.echo(f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()} (via {src.id()})")
+        typer.echo(
+            f"{q.symbol}/{q.quote_ccy} price={q.price} ts={q.ts.isoformat()} (via {src.id()})"
+        )
         return
     msg = f"Failed to fetch quote for {sym} from all providers"
     if last_err:
@@ -245,8 +305,12 @@ def price_quote(
 @price_app.command("show")
 def price_show(
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
-    since: Optional[datetime] = typer.Option(None, "--since", help="Start date/time (ISO)"),
-    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency (defaults to context or config)"),
+    since: Optional[datetime] = typer.Option(
+        None, "--since", help="Start date/time (ISO)"
+    ),
+    quote: Optional[str] = typer.Option(
+        None, "--quote", help="Quote currency (defaults to context or config)"
+    ),
     limit: int = typer.Option(20, "--limit", help="Limit number of rows"),
 ) -> None:
     """Show cached prices from the local DB."""
@@ -254,7 +318,9 @@ def price_show(
     ctx = load_context()
     quote = quote or ctx.quote or cfg.base_currency
     with session_scope(cfg.db_path) as s:
-        rows = list_prices(s, asset_symbol=asset, quote_ccy=quote, since=since, limit=limit)
+        rows = list_prices(
+            s, asset_symbol=asset, quote_ccy=quote, since=since, limit=limit
+        )
     if not rows:
         typer.echo("No prices found.")
         raise typer.Exit(code=0)
@@ -268,20 +334,7 @@ def price_show(
 
 app.add_typer(price_app, name="price")
 
-# Domain subcommands
-from .cli.account import app as account_app
-from .cli.tx import app as tx_app
-from .cli.import_cmd import app as import_app
-from .cli.export_cmd import app as export_app
-from .cli.chart import app as chart_app
-from .cli.report import app as report_app
-from .cli.context_cmd import app as context_app
-import subprocess
-import shutil
-import threading
-import time as _time
-from uvicorn import Config as UvicornConfig, Server as UvicornServer
-from pathlib import Path
+# Domain subcommands registered below
 
 app.add_typer(account_app, name="account")
 app.add_typer(tx_app, name="tx")
@@ -297,20 +350,35 @@ portfolio_app = typer.Typer(help="Portfolio views")
 
 @portfolio_app.command("summary")
 def portfolio_summary(
-    as_of: Optional[datetime] = typer.Option(None, "--as-of", help="As-of date/time (ISO); defaults to now"),
-    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency for valuation (defaults to context or config)"),
-    account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
+    as_of: Optional[datetime] = typer.Option(
+        None, "--as-of", help="As-of date/time (ISO); defaults to now"
+    ),
+    quote: Optional[str] = typer.Option(
+        None,
+        "--quote",
+        help="Quote currency for valuation (defaults to context or config)",
+    ),
+    account_id: Optional[int] = typer.Option(
+        None, "--account-id", help="Limit to a single account"
+    ),
 ) -> None:
     cfg = get_config()
     ctx = load_context()
     as_of = as_of or datetime.utcnow()
     quote = quote or ctx.quote or cfg.base_currency
     with session_scope(cfg.db_path) as s:
-        positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
+        positions, totals = summarize_portfolio(
+            s, as_of=as_of, quote=quote, account_id=account_id
+        )
     if not positions:
         console.print("[yellow]No holdings as of the specified time.[/yellow]")
         raise typer.Exit(code=0)
-    console.print(Panel.fit(f"Portfolio summary as of {as_of.isoformat()} in {quote}", border_style="cyan"))
+    console.print(
+        Panel.fit(
+            f"Portfolio summary as of {as_of.isoformat()} in {quote}",
+            border_style="cyan",
+        )
+    )
     table = Table(title="Positions")
     table.add_column("Asset")
     table.add_column("Qty", justify="right")
@@ -345,10 +413,20 @@ app.add_typer(portfolio_app, name="portfolio")
 
 @portfolio_app.command("chart")
 def portfolio_chart(
-    since: datetime = typer.Option(..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"),
-    until: Optional[datetime] = typer.Option(None, "--until", help="End date/time; defaults to now"),
-    quote: Optional[str] = typer.Option(None, "--quote", help="Quote currency for valuation (defaults to context or config)"),
-    account_id: Optional[int] = typer.Option(None, "--account-id", help="Limit to a single account"),
+    since: datetime = typer.Option(
+        ..., "--since", help="Start date/time (YYYY-MM-DD or ISO)"
+    ),
+    until: Optional[datetime] = typer.Option(
+        None, "--until", help="End date/time; defaults to now"
+    ),
+    quote: Optional[str] = typer.Option(
+        None,
+        "--quote",
+        help="Quote currency for valuation (defaults to context or config)",
+    ),
+    account_id: Optional[int] = typer.Option(
+        None, "--account-id", help="Limit to a single account"
+    ),
 ) -> None:
     """Render a terminal line chart of portfolio value over time."""
     import plotext as plt
@@ -364,18 +442,21 @@ def portfolio_chart(
     with session_scope(cfg.db_path) as s:
         cur = since
         while cur <= until:
-            positions, totals = summarize_portfolio(s, as_of=cur, quote=quote, account_id=account_id)
-            xs.append(cur.strftime('%Y-%m-%d'))
+            positions, totals = summarize_portfolio(
+                s, as_of=cur, quote=quote, account_id=account_id
+            )
+            xs.append(cur.strftime("%Y-%m-%d"))
             ys.append(float(totals["value"]))
             cur = cur + timedelta(days=1)
     if not ys:
         console.print("[yellow]No data available for the requested range.[/yellow]")
         raise typer.Exit(code=0)
     plt.clear_figure()
-    plt.date_form('Y-m-d')
-    plt.plot(xs, ys, marker='dot')
+    plt.date_form("Y-m-d")
+    plt.plot(xs, ys, marker="dot")
     plt.title(f"Portfolio Value ({quote})")
     plt.show()
+
 
 def main() -> None:
     app()
@@ -383,9 +464,15 @@ def main() -> None:
 
 @app.command("seed")
 def seed(
-    reset: bool = typer.Option(False, "--reset", help="Delete existing DB file before seeding"),
-    with_prices: bool = typer.Option(True, "--with-prices/--no-prices", help="Seed synthetic daily prices"),
-    days: int = typer.Option(180, "--days", help="Days of history for synthetic prices"),
+    reset: bool = typer.Option(
+        False, "--reset", help="Delete existing DB file before seeding"
+    ),
+    with_prices: bool = typer.Option(
+        True, "--with-prices/--no-prices", help="Seed synthetic daily prices"
+    ),
+    days: int = typer.Option(
+        180, "--days", help="Days of history for synthetic prices"
+    ),
     quote: str = typer.Option("USD", "--quote", help="Quote currency for prices"),
 ) -> None:
     """Initialize the DB with mock accounts, transactions, and optional synthetic prices."""
@@ -404,32 +491,117 @@ def seed(
     with session_scope(db_path) as s:
         existing = list_accounts(s, limit=1)
         if existing and not reset:
-            console.print("[yellow]DB already has accounts. Use --reset to start fresh.[/yellow]")
+            console.print(
+                "[yellow]DB already has accounts. Use --reset to start fresh.[/yellow]"
+            )
             raise typer.Exit(code=0)
 
     # Create sample accounts
     with session_scope(db_path) as s:
-        acc1 = create_account(s, name="Main Exchange", type_=AccountType.exchange, datasource="manual", currency="USD")
-        acc2 = create_account(s, name="Cold Wallet", type_=AccountType.wallet, datasource="manual", currency="USD")
+        acc1 = create_account(
+            s,
+            name="Main Exchange",
+            type_=AccountType.exchange,
+            datasource="manual",
+            currency="USD",
+        )
+        acc2 = create_account(
+            s,
+            name="Cold Wallet",
+            type_=AccountType.wallet,
+            datasource="manual",
+            currency="USD",
+        )
         acc1_id = acc1.id
         acc2_id = acc2.id
 
     now = datetime.utcnow()
-    t = lambda d: now - timedelta(days=d)
+
+    def t(d: int):
+        return now - timedelta(days=d)
 
     # Create sample transactions
     with session_scope(db_path) as s:
         # BTC buys on Main Exchange
-        create_transaction(s, ts=t(120), account_id=acc1_id, asset_symbol="BTC", side=TxSide.buy, qty=Decimal("0.25"), price_quote=Decimal("60000"), total_quote=Decimal("15000"), quote_ccy=quote, note="Seed: BTC buy")
-        create_transaction(s, ts=t(90), account_id=acc1_id, asset_symbol="BTC", side=TxSide.buy, qty=Decimal("0.15"), price_quote=Decimal("62000"), total_quote=Decimal("9300"), quote_ccy=quote)
+        create_transaction(
+            s,
+            ts=t(120),
+            account_id=acc1_id,
+            asset_symbol="BTC",
+            side=TxSide.buy,
+            qty=Decimal("0.25"),
+            price_quote=Decimal("60000"),
+            total_quote=Decimal("15000"),
+            quote_ccy=quote,
+            note="Seed: BTC buy",
+        )
+        create_transaction(
+            s,
+            ts=t(90),
+            account_id=acc1_id,
+            asset_symbol="BTC",
+            side=TxSide.buy,
+            qty=Decimal("0.15"),
+            price_quote=Decimal("62000"),
+            total_quote=Decimal("9300"),
+            quote_ccy=quote,
+        )
         # ETH buys
-        create_transaction(s, ts=t(85), account_id=acc1_id, asset_symbol="ETH", side=TxSide.buy, qty=Decimal("1.50"), price_quote=Decimal("3000"), total_quote=Decimal("4500"), quote_ccy=quote)
-        create_transaction(s, ts=t(60), account_id=acc1_id, asset_symbol="ETH", side=TxSide.buy, qty=Decimal("0.75"), price_quote=Decimal("3200"), total_quote=Decimal("2400"), quote_ccy=quote)
+        create_transaction(
+            s,
+            ts=t(85),
+            account_id=acc1_id,
+            asset_symbol="ETH",
+            side=TxSide.buy,
+            qty=Decimal("1.50"),
+            price_quote=Decimal("3000"),
+            total_quote=Decimal("4500"),
+            quote_ccy=quote,
+        )
+        create_transaction(
+            s,
+            ts=t(60),
+            account_id=acc1_id,
+            asset_symbol="ETH",
+            side=TxSide.buy,
+            qty=Decimal("0.75"),
+            price_quote=Decimal("3200"),
+            total_quote=Decimal("2400"),
+            quote_ccy=quote,
+        )
         # Transfer some BTC to Cold Wallet
-        create_transaction(s, ts=t(58), account_id=acc1_id, asset_symbol="BTC", side=TxSide.transfer_out, qty=Decimal("0.05"), quote_ccy=quote, note="Move to cold wallet")
-        create_transaction(s, ts=t(58), account_id=acc2_id, asset_symbol="BTC", side=TxSide.transfer_in, qty=Decimal("0.05"), quote_ccy=quote, note="From exchange")
+        create_transaction(
+            s,
+            ts=t(58),
+            account_id=acc1_id,
+            asset_symbol="BTC",
+            side=TxSide.transfer_out,
+            qty=Decimal("0.05"),
+            quote_ccy=quote,
+            note="Move to cold wallet",
+        )
+        create_transaction(
+            s,
+            ts=t(58),
+            account_id=acc2_id,
+            asset_symbol="BTC",
+            side=TxSide.transfer_in,
+            qty=Decimal("0.05"),
+            quote_ccy=quote,
+            note="From exchange",
+        )
         # A sell to realize PnL
-        create_transaction(s, ts=t(30), account_id=acc1_id, asset_symbol="ETH", side=TxSide.sell, qty=Decimal("0.50"), price_quote=Decimal("3500"), total_quote=Decimal("1750"), quote_ccy=quote)
+        create_transaction(
+            s,
+            ts=t(30),
+            account_id=acc1_id,
+            asset_symbol="ETH",
+            side=TxSide.sell,
+            qty=Decimal("0.50"),
+            price_quote=Decimal("3500"),
+            total_quote=Decimal("1750"),
+            quote_ccy=quote,
+        )
 
     # Seed synthetic daily prices
     if with_prices:
@@ -439,31 +611,68 @@ def seed(
                 ts = start + timedelta(days=i)
                 # BTC synthetic
                 btc = Decimal(str(60000 + 5000 * math.sin(i / 14.0)))
-                upsert_price(s, asset_symbol="BTC", quote_ccy=quote, ts=ts, price=btc, source="seed")
+                upsert_price(
+                    s,
+                    asset_symbol="BTC",
+                    quote_ccy=quote,
+                    ts=ts,
+                    price=btc,
+                    source="seed",
+                )
                 # ETH synthetic
                 eth = Decimal(str(3000 + 400 * math.sin(i / 10.0)))
-                upsert_price(s, asset_symbol="ETH", quote_ccy=quote, ts=ts, price=eth, source="seed")
+                upsert_price(
+                    s,
+                    asset_symbol="ETH",
+                    quote_ccy=quote,
+                    ts=ts,
+                    price=eth,
+                    source="seed",
+                )
 
-    console.print(Panel.fit("Seed data created: 2 accounts, sample transactions, and synthetic prices.", border_style="green"))
+    console.print(
+        Panel.fit(
+            "Seed data created: 2 accounts, sample transactions, and synthetic prices.",
+            border_style="green",
+        )
+    )
 
 
 @app.command("api")
-def run_api(port: int = typer.Option(8001, "--port"), host: str = typer.Option("127.0.0.1", "--host")) -> None:
+def run_api(
+    port: int = typer.Option(8001, "--port"),
+    host: str = typer.Option("127.0.0.1", "--host"),
+) -> None:
     cfg = get_config()
     init_db(cfg.db_path)
     from wealth_os.api.server import app as fastapi_app
-    server = UvicornServer(UvicornConfig(fastapi_app, host=host, port=port, log_level="info"))
+
+    server = UvicornServer(
+        UvicornConfig(fastapi_app, host=host, port=port, log_level="info")
+    )
     server.run()
 
 
 @app.command("ui")
 def run_ui(
-    ui_path: Optional[str] = typer.Option(None, "--ui-path", help="Path to Next.js UI project (defaults to package's ui folder)"),
+    ui_path: Optional[str] = typer.Option(
+        None,
+        "--ui-path",
+        help="Path to Next.js UI project (defaults to package's ui folder)",
+    ),
     api_port: int = typer.Option(8001, "--api-port"),
-    api_host: str = typer.Option("127.0.0.1", "--api-host"),
-    dev: bool = typer.Option(False, "--dev", help="Run Next.js in dev mode (next dev). If false, runs production server (next start)."),
-    build: bool = typer.Option(False, "--build", help="Force building the UI before starting (next build)."),
-    ui_port: int = typer.Option(3000, "--ui-port", help="Port for Next.js when running in production"),
+    api_host: str = typer.Option("0.0.0.0", "--api-host"),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Run Next.js in dev mode (next dev). If false, runs production server (next start).",
+    ),
+    build: bool = typer.Option(
+        False, "--build", help="Force building the UI before starting (next build)."
+    ),
+    ui_port: int = typer.Option(
+        3000, "--ui-port", help="Port for Next.js when running in production"
+    ),
 ) -> None:
     """Start the FastAPI backend and serve the UI.
 
@@ -474,13 +683,21 @@ def run_ui(
     init_db(cfg.db_path)
 
     from wealth_os.api.server import app as fastapi_app
-    server = UvicornServer(UvicornConfig(fastapi_app, host=api_host, port=api_port, log_level="info"))
+
+    server = UvicornServer(
+        UvicornConfig(fastapi_app, host=api_host, port=api_port, log_level="info")
+    )
 
     # Start backend in a separate thread
     t = threading.Thread(target=server.run, daemon=True)
     t.start()
     _time.sleep(0.5)
-    console.print(Panel.fit(f"API running at http://{api_host}:{api_port} (docs at /docs)", border_style="green"))
+    console.print(
+        Panel.fit(
+            f"API running at http://{api_host}:{api_port} (docs at /docs)",
+            border_style="green",
+        )
+    )
 
     # Resolve UI path
     if ui_path is None:
@@ -506,7 +723,12 @@ def run_ui(
             return
         try:
             proc = subprocess.Popen(ui_cmd, cwd=ui_path, shell=True, env=env)
-            console.print(Panel.fit(f"UI starting in DEV with {ui_cmd} in {ui_path}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
+            console.print(
+                Panel.fit(
+                    f"UI starting in DEV with {ui_cmd} in {ui_path}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}",
+                    border_style="cyan",
+                )
+            )
             proc.wait()
         except KeyboardInterrupt:
             pass
@@ -517,20 +739,32 @@ def run_ui(
     # Production: ensure build exists or build if requested/required
     next_build_dir = os.path.join(ui_path, ".next")
     if build or not os.path.isdir(next_build_dir):
-        console.print(Panel.fit("Building UI for production (npm run build)...", border_style="cyan"))
+        console.print(
+            Panel.fit(
+                "Building UI for production (npm run build)...", border_style="cyan"
+            )
+        )
         try:
             # Install deps if needed, then build
             if not os.path.isdir(ui_path):
                 console.print(f"[red]UI path not found:[/red] {ui_path}")
-                console.print("Provide --ui-path pointing to the Next.js project (e.g. cloned repo src/wealth/ui).")
+                console.print(
+                    "Provide --ui-path pointing to the Next.js project (e.g. cloned repo src/wealth/ui)."
+                )
                 raise typer.Exit(code=1)
             if shutil.which("npm") is None:
-                console.print("[red]npm not found in PATH.[/red] Install Node.js or run the UI manually.")
-                console.print(f"cd {ui_path} && npm install && npm run build && PORT={ui_port} npm run start")
+                console.print(
+                    "[red]npm not found in PATH.[/red] Install Node.js or run the UI manually."
+                )
+                console.print(
+                    f"cd {ui_path} && npm install && npm run build && PORT={ui_port} npm run start"
+                )
                 console.print("Backend API remains running above.")
                 t.join()
                 return
-            subprocess.check_call("npm install --silent", cwd=ui_path, shell=True, env=env)
+            subprocess.check_call(
+                "npm install --silent", cwd=ui_path, shell=True, env=env
+            )
             subprocess.check_call("npm run build", cwd=ui_path, shell=True, env=env)
         except subprocess.CalledProcessError as e:
             console.print(f"[red]UI build failed:[/red] {e}")
@@ -538,6 +772,7 @@ def run_ui(
 
     # Run next start in production
     env["PORT"] = str(ui_port)
+    env["HOST"] = env.get("HOST", "0.0.0.0")
     ui_cmd = "npm run start"
     if not shutil.which(ui_cmd.split()[0]):
         console.print("[yellow]Note: npm not found. Run the UI manually.[/yellow]")
@@ -547,7 +782,12 @@ def run_ui(
         return
     try:
         proc = subprocess.Popen(ui_cmd, cwd=ui_path, shell=True, env=env)
-        console.print(Panel.fit(f"UI starting in PROD with {ui_cmd} on port {ui_port}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
+        console.print(
+            Panel.fit(
+                f"UI starting in PROD with {ui_cmd} on port {ui_port}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}",
+                border_style="cyan",
+            )
+        )
         proc.wait()
     except KeyboardInterrupt:
         pass

@@ -38,7 +38,9 @@ class Asset(SQLModel, table=True):
 class Account(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
-    type: AccountType = Field(default=AccountType.exchange, sa_column=Column("type", String, nullable=False))
+    type: AccountType = Field(
+        default=AccountType.exchange, sa_column=Column("type", String, nullable=False)
+    )
     datasource: Optional[str] = Field(default=None, index=True)
     external_id: Optional[str] = Field(default=None, index=True)
     currency: str = Field(default="USD")
@@ -64,8 +66,12 @@ class Transaction(SQLModel, table=True):
     side: TxSide = Field(sa_column=Column("side", String, nullable=False))
 
     qty: Decimal = Field(sa_column=Column(NUMERIC(38, 18)))
-    price_quote: Optional[Decimal] = Field(default=None, sa_column=Column(NUMERIC(38, 18)))
-    total_quote: Optional[Decimal] = Field(default=None, sa_column=Column(NUMERIC(38, 18)))
+    price_quote: Optional[Decimal] = Field(
+        default=None, sa_column=Column(NUMERIC(38, 18))
+    )
+    total_quote: Optional[Decimal] = Field(
+        default=None, sa_column=Column(NUMERIC(38, 18))
+    )
     quote_ccy: Optional[str] = Field(default="USD", index=True)
 
     fee_qty: Optional[Decimal] = Field(default=None, sa_column=Column(NUMERIC(38, 18)))
@@ -75,14 +81,14 @@ class Transaction(SQLModel, table=True):
     tx_hash: Optional[str] = Field(default=None, index=True)
     external_id: Optional[str] = Field(default=None, index=True)
     datasource: Optional[str] = Field(default=None, index=True)
-    import_batch_id: Optional[int] = Field(default=None, foreign_key="importbatch.id", index=True)
+    import_batch_id: Optional[int] = Field(
+        default=None, foreign_key="importbatch.id", index=True
+    )
     tags: Optional[str] = Field(default=None, index=True)
 
     # Relationships omitted for simplicity in v1
 
-    __table_args__ = (
-        Index("ix_tx_account_ts", "account_id", "ts"),
-    )
+    __table_args__ = (Index("ix_tx_account_ts", "account_id", "ts"),)
 
 
 class Price(SQLModel, table=True):
@@ -94,7 +100,9 @@ class Price(SQLModel, table=True):
     source: Optional[str] = Field(default="coinmarketcap", index=True)
 
     __table_args__ = (
-        UniqueConstraint("asset_symbol", "quote_ccy", "ts", name="uq_price_symbol_quote_ts"),
+        UniqueConstraint(
+            "asset_symbol", "quote_ccy", "ts", name="uq_price_symbol_quote_ts"
+        ),
         Index("ix_price_symbol_ts", "asset_symbol", "ts"),
     )
 

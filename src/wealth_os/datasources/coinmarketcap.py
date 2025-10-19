@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -9,7 +8,7 @@ import requests
 
 import os
 
-from .base import OHLCVPoint, PriceDataSource, PriceQuote
+from .base import OHLCVPoint, PriceQuote
 from .registry import register_price_source
 
 
@@ -21,12 +20,14 @@ class _CMCClient:
             base_url = "https://" + base_url
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
-        self.session.headers.update({
-            "Accept": "application/json",
-            "Accepts": "application/json",
-            "X-CMC_PRO_API_KEY": api_key,
-            "User-Agent": "wealth-cli/0.1",
-        })
+        self.session.headers.update(
+            {
+                "Accept": "application/json",
+                "Accepts": "application/json",
+                "X-CMC_PRO_API_KEY": api_key,
+                "User-Agent": "wealth-cli/0.1",
+            }
+        )
 
     def get(self, path: str, params: Optional[Dict[str, str]] = None) -> dict:
         url = f"{self.base_url}{path}"
@@ -48,12 +49,16 @@ class _CMCClient:
             except Exception:
                 pass
             if err_detail:
-                raise RuntimeError(f"HTTP {r.status_code} from {url}: {err_detail}") from e
+                raise RuntimeError(
+                    f"HTTP {r.status_code} from {url}: {err_detail}"
+                ) from e
             raise
         data = r.json()
         status = data.get("status", {})
         if status.get("error_code") not in (None, 0):
-            raise RuntimeError(f"CoinMarketCap error {status.get('error_code')}: {status.get('error_message')}")
+            raise RuntimeError(
+                f"CoinMarketCap error {status.get('error_code')}: {status.get('error_message')}"
+            )
         return data
 
     def map_symbol(self, symbol: str) -> Optional[int]:
@@ -65,7 +70,10 @@ class _CMCClient:
         return None
 
     def quotes_latest(self, symbol: str, convert: str = "USD") -> PriceQuote:
-        resp = self.get("/v2/cryptocurrency/quotes/latest", params={"symbol": symbol.upper(), "convert": convert.upper()})
+        resp = self.get(
+            "/v2/cryptocurrency/quotes/latest",
+            params={"symbol": symbol.upper(), "convert": convert.upper()},
+        )
         data = resp.get("data", {})
         sym = symbol.upper()
         item = data.get(sym)
@@ -78,7 +86,9 @@ class _CMCClient:
             raise RuntimeError(f"No quote pricing for {sym}/{convert}")
         price = Decimal(str(quote_data["price"]))
         ts = datetime.fromisoformat(quote_data["last_updated"].replace("Z", "+00:00"))
-        return PriceQuote(symbol=symbol.upper(), quote_ccy=convert.upper(), price=price, ts=ts)
+        return PriceQuote(
+            symbol=symbol.upper(), quote_ccy=convert.upper(), price=price, ts=ts
+        )
 
     def ohlcv_historical(
         self,
@@ -92,11 +102,13 @@ class _CMCClient:
         # CoinMarketCap typically expects 'daily', 'weekly', etc. Map common aliases.
         interval_map = {"1d": "daily", "daily": "daily"}
         interval_param = interval_map.get(interval, interval)
+
         def _fmt(dt: datetime) -> str:
             # Use second precision, avoid microseconds
             if dt.tzinfo is None:
                 return dt.replace(microsecond=0).isoformat()
             return dt.astimezone().replace(microsecond=0).isoformat()
+
         params = {
             "symbol": symbol.upper(),
             "convert": convert.upper(),
@@ -118,7 +130,9 @@ class _CMCClient:
                     high=Decimal(str(conv.get("high"))),
                     low=Decimal(str(conv.get("low"))),
                     close=Decimal(str(conv.get("close"))),
-                    volume=Decimal(str(conv.get("volume"))) if conv.get("volume") is not None else None,
+                    volume=Decimal(str(conv.get("volume")))
+                    if conv.get("volume") is not None
+                    else None,
                 )
             )
         return out
@@ -134,7 +148,9 @@ class CoinMarketCapPriceSource:
         api_key = api_key or os.getenv("COINMARKETCAP_API_KEY")
         if not api_key:
             raise RuntimeError("COINMARKETCAP_API_KEY not configured")
-        url = base_url or os.getenv("COINMARKETCAP_BASE_URL", "https://sandbox-api.coinmarketcap.com")
+        url = base_url or os.getenv(
+            "COINMARKETCAP_BASE_URL", "https://sandbox-api.coinmarketcap.com"
+        )
         self.client = _CMCClient(api_key, url)
         self._symbol_id_cache: Dict[str, Optional[int]] = {}
 
@@ -150,7 +166,9 @@ class CoinMarketCapPriceSource:
         quote: str = "USD",
     ) -> List[OHLCVPoint]:
         interval_alias = "daily" if interval in ("1d", "daily") else interval
-        return self.client.ohlcv_historical(symbol, start, end, interval=interval_alias, convert=quote)
+        return self.client.ohlcv_historical(
+            symbol, start, end, interval=interval_alias, convert=quote
+        )
 
     def resolve_symbol_id(self, symbol: str) -> Optional[str]:
         key = symbol.upper()

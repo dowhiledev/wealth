@@ -22,15 +22,34 @@ app = typer.Typer(help="Manage accounts")
 @app.command("add")
 def add(
     name: str = typer.Option(..., "--name", help="Account name"),
-    type: AccountType = typer.Option(AccountType.exchange, "--type", case_sensitive=False, help="Account type"),
-    datasource: Optional[str] = typer.Option(None, "--datasource", help="Datasource label"),
-    external_id: Optional[str] = typer.Option(None, "--external-id", help="External/account ID at provider"),
-    currency: str = typer.Option("USD", "--currency", help="Primary currency for the account"),
+    type: AccountType = typer.Option(
+        AccountType.exchange, "--type", case_sensitive=False, help="Account type"
+    ),
+    datasource: Optional[str] = typer.Option(
+        None, "--datasource", help="Datasource label"
+    ),
+    external_id: Optional[str] = typer.Option(
+        None, "--external-id", help="External/account ID at provider"
+    ),
+    currency: str = typer.Option(
+        "USD", "--currency", help="Primary currency for the account"
+    ),
 ):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        acc = create_account(s, name=name, type_=type, datasource=datasource, external_id=external_id, currency=currency)
-        console.print(success_panel(f"Created account id={acc.id} name={acc.name} type={acc.type}"))
+        acc = create_account(
+            s,
+            name=name,
+            type_=type,
+            datasource=datasource,
+            external_id=external_id,
+            currency=currency,
+        )
+        console.print(
+            success_panel(
+                f"Created account id={acc.id} name={acc.name} type={acc.type}"
+            )
+        )
 
 
 @app.command("list")
@@ -42,8 +61,11 @@ def list_(
 ):
     cfg = get_config()
     from rich.table import Table
+
     with session_scope(cfg.db_path) as s:
-        rows = list_accounts(s, name_like=name_like, datasource=datasource, limit=limit, offset=offset)
+        rows = list_accounts(
+            s, name_like=name_like, datasource=datasource, limit=limit, offset=offset
+        )
         if not rows:
             console.print("[yellow]No accounts found.[/yellow]")
             raise typer.Exit(code=0)
@@ -55,7 +77,14 @@ def list_(
         table.add_column("Datasource")
         table.add_column("Created")
         for a in rows:
-            table.add_row(str(a.id), a.name, str(a.type), a.currency, a.datasource or "-", a.created_at.isoformat())
+            table.add_row(
+                str(a.id),
+                a.name,
+                str(a.type),
+                a.currency,
+                a.datasource or "-",
+                a.created_at.isoformat(),
+            )
         console.print(table)
 
 
@@ -70,9 +99,21 @@ def edit(
 ):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        acc = update_account(s, id, name=name, type_=type, datasource=datasource, external_id=external_id, currency=currency)
+        acc = update_account(
+            s,
+            id,
+            name=name,
+            type_=type,
+            datasource=datasource,
+            external_id=external_id,
+            currency=currency,
+        )
         if acc:
-            console.print(success_panel(f"Updated account id={acc.id} name={acc.name} type={acc.type}"))
+            console.print(
+                success_panel(
+                    f"Updated account id={acc.id} name={acc.name} type={acc.type}"
+                )
+            )
     if not acc:
         console.print("[red]Account not found.[/red]")
         raise typer.Exit(code=1)

@@ -2,12 +2,21 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Optional
 
 from sqlmodel import Session, select
 
 from .engine import get_engine
-from .models import Account, AccountType, Asset, Price, Transaction, TxSide, ImportBatch, AssetPreference
+from .models import (
+    Account,
+    AccountType,
+    Asset,
+    Price,
+    Transaction,
+    TxSide,
+    ImportBatch,
+    AssetPreference,
+)
 
 
 @contextmanager
@@ -29,20 +38,44 @@ def get_asset(session: Session, symbol: str) -> Optional[Asset]:
     return session.get(Asset, symbol)
 
 
-def ensure_asset(session: Session, symbol: str, *, name: Optional[str] = None, type_: str = "crypto", decimals: int = 18, cmc_id: Optional[int] = None) -> Asset:
+def ensure_asset(
+    session: Session,
+    symbol: str,
+    *,
+    name: Optional[str] = None,
+    type_: str = "crypto",
+    decimals: int = 18,
+    cmc_id: Optional[int] = None,
+) -> Asset:
     symbol_u = symbol.upper()
     asset = get_asset(session, symbol_u)
     if asset:
         return asset
-    asset = Asset(symbol=symbol_u, name=name, type=type_, decimals=decimals, cmc_id=cmc_id)
+    asset = Asset(
+        symbol=symbol_u, name=name, type=type_, decimals=decimals, cmc_id=cmc_id
+    )
     session.add(asset)
     session.flush()
     return asset
 
 
 # Account CRUD
-def create_account(session: Session, *, name: str, type_: AccountType, datasource: Optional[str] = None, external_id: Optional[str] = None, currency: str = "USD") -> Account:
-    acc = Account(name=name, type=type_, datasource=datasource, external_id=external_id, currency=currency)
+def create_account(
+    session: Session,
+    *,
+    name: str,
+    type_: AccountType,
+    datasource: Optional[str] = None,
+    external_id: Optional[str] = None,
+    currency: str = "USD",
+) -> Account:
+    acc = Account(
+        name=name,
+        type=type_,
+        datasource=datasource,
+        external_id=external_id,
+        currency=currency,
+    )
     session.add(acc)
     session.flush()
     return acc
@@ -52,7 +85,14 @@ def get_account(session: Session, account_id: int) -> Optional[Account]:
     return session.get(Account, account_id)
 
 
-def list_accounts(session: Session, *, name_like: Optional[str] = None, datasource: Optional[str] = None, limit: int = 100, offset: int = 0) -> list[Account]:
+def list_accounts(
+    session: Session,
+    *,
+    name_like: Optional[str] = None,
+    datasource: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Account]:
     stmt = select(Account)
     if name_like:
         stmt = stmt.where(Account.name.ilike(f"%{name_like}%"))
@@ -274,7 +314,9 @@ def update_import_batch_summary(session: Session, batch_id: int, summary: str) -
 
 
 # Dedupe helpers
-def find_tx_by_external_id(session: Session, *, datasource: str | None, external_id: str) -> Transaction | None:
+def find_tx_by_external_id(
+    session: Session, *, datasource: str | None, external_id: str
+) -> Transaction | None:
     stmt = select(Transaction).where(Transaction.external_id == external_id)
     if datasource is not None:
         stmt = stmt.where(Transaction.datasource == datasource)
@@ -333,7 +375,9 @@ def list_prices(
     limit: int = 1000,
     offset: int = 0,
 ) -> list[Price]:
-    stmt = select(Price).where(Price.asset_symbol == asset_symbol.upper(), Price.quote_ccy == quote_ccy.upper())
+    stmt = select(Price).where(
+        Price.asset_symbol == asset_symbol.upper(), Price.quote_ccy == quote_ccy.upper()
+    )
     if since is not None:
         stmt = stmt.where(Price.ts >= since)
     if until is not None:
@@ -365,7 +409,9 @@ def get_asset_preference(session: Session, symbol: str) -> Optional[str]:
     return row.preferred_price_source if row else None
 
 
-def set_asset_preference(session: Session, symbol: str, provider: Optional[str]) -> AssetPreference:
+def set_asset_preference(
+    session: Session, symbol: str, provider: Optional[str]
+) -> AssetPreference:
     ensure_asset(session, symbol)
     sym = symbol.upper()
     row = session.get(AssetPreference, sym)

@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import typer
-from wealth_os.cli.ui import console, fmt_decimal, fmt_money, success_panel
+from wealth_os.cli.ui import console, fmt_decimal, success_panel
 
 from wealth_os.core.config import get_config
 from wealth_os.core.context import load_context
@@ -14,7 +14,6 @@ from wealth_os.db.repo import (
     session_scope,
     create_transaction,
     delete_transaction,
-    get_transaction,
     list_transactions,
     update_transaction,
 )
@@ -25,11 +24,15 @@ app = typer.Typer(help="Manage transactions")
 
 @app.command("add")
 def add(
-    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
+    account_id: Optional[int] = typer.Option(
+        None, "--account-id", help="Defaults to context account_id if not provided"
+    ),
     asset: str = typer.Option(..., "--asset", help="Asset symbol, e.g., BTC"),
     side: TxSide = typer.Option(..., "--side", case_sensitive=False),
     qty: str = typer.Option(..., "--qty"),
-    ts: Optional[datetime] = typer.Option(None, "--ts", help="Timestamp (ISO); defaults to now"),
+    ts: Optional[datetime] = typer.Option(
+        None, "--ts", help="Timestamp (ISO); defaults to now"
+    ),
     price_quote: Optional[str] = typer.Option(None, "--price-quote"),
     total_quote: Optional[str] = typer.Option(None, "--total-quote"),
     quote_ccy: str = typer.Option("USD", "--quote-ccy"),
@@ -44,6 +47,7 @@ def add(
 ):
     cfg = get_config()
     ctx = load_context()
+
     # Convert decimals from strings
     def _to_dec(x: Optional[str]) -> Optional[Decimal]:
         if x is None:
@@ -74,13 +78,21 @@ def add(
             tags=tags,
         )
         if (account_id or ctx.account_id) is None:
-            raise typer.BadParameter("--account-id is required (set via --account-id or `wealth context set account_id <id>`)" )
-        console.print(success_panel(f"Created tx id={tx.id} asset={tx.asset_symbol} side={tx.side} qty={fmt_decimal(tx.qty)}"))
+            raise typer.BadParameter(
+                "--account-id is required (set via --account-id or `wealth context set account_id <id>`)"
+            )
+        console.print(
+            success_panel(
+                f"Created tx id={tx.id} asset={tx.asset_symbol} side={tx.side} qty={fmt_decimal(tx.qty)}"
+            )
+        )
 
 
 @app.command("list")
 def list_(
-    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
+    account_id: Optional[int] = typer.Option(
+        None, "--account-id", help="Defaults to context account_id if not provided"
+    ),
     asset: Optional[str] = typer.Option(None, "--asset"),
     side: Optional[TxSide] = typer.Option(None, "--side", case_sensitive=False),
     since: Optional[datetime] = typer.Option(None, "--since"),
@@ -91,6 +103,7 @@ def list_(
     cfg = get_config()
     ctx = load_context()
     from rich.table import Table
+
     with session_scope(cfg.db_path) as s:
         rows = list_transactions(
             s,
@@ -117,7 +130,11 @@ def list_(
         table.add_column("QCCY")
         for t in rows:
             side_str = str(t.side)
-            side_style = "green" if "buy" in side_str else ("red" if "sell" in side_str else "yellow")
+            side_style = (
+                "green"
+                if "buy" in side_str
+                else ("red" if "sell" in side_str else "yellow")
+            )
             table.add_row(
                 str(t.id),
                 t.ts.isoformat(),
@@ -136,7 +153,9 @@ def list_(
 def edit(
     id: int = typer.Option(..., "--id"),
     ts: Optional[datetime] = typer.Option(None, "--ts"),
-    account_id: Optional[int] = typer.Option(None, "--account-id", help="Defaults to context account_id if not provided"),
+    account_id: Optional[int] = typer.Option(
+        None, "--account-id", help="Defaults to context account_id if not provided"
+    ),
     asset: Optional[str] = typer.Option(None, "--asset"),
     side: Optional[TxSide] = typer.Option(None, "--side", case_sensitive=False),
     qty: Optional[str] = typer.Option(None, "--qty"),
@@ -154,6 +173,7 @@ def edit(
 ):
     cfg = get_config()
     ctx = load_context()
+
     def _to_dec(x: Optional[str]) -> Optional[Decimal]:
         if x is None:
             return None

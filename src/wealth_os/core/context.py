@@ -4,10 +4,12 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
-DEFAULT_CONTEXT_FILE = os.getenv("WEALTH_CONTEXT_FILE") or str(Path.home() / ".wealth" / "context.json")
+DEFAULT_CONTEXT_FILE = os.getenv("WEALTH_CONTEXT_FILE") or str(
+    Path.home() / ".wealth" / "context.json"
+)
 
 
 @dataclass
@@ -61,4 +63,3 @@ def unset_value(key: str) -> Context:
     setattr(ctx, key, None)
     save_context(ctx)
     return ctx
-

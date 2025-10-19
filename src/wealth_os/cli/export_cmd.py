@@ -73,25 +73,26 @@ def export_csv(
                     if t.account_id not in acct_names:
                         acc = get_account(s, t.account_id)
                         acct_names[t.account_id] = acc.name if acc else ""
-                    w.writerow([
-                        t.ts.isoformat(),
-                        acct_names.get(t.account_id, ""),
-                        t.account_id,
-                        t.asset_symbol,
-                        t.side,
-                        str(t.qty) if t.qty is not None else "",
-                        str(t.price_quote) if t.price_quote is not None else "",
-                        str(t.total_quote) if t.total_quote is not None else "",
-                        t.quote_ccy or "",
-                        str(t.fee_qty) if t.fee_qty is not None else "",
-                        t.fee_asset or "",
-                        t.note or "",
-                        t.tags or "",
-                        t.tx_hash or "",
-                        t.external_id or "",
-                        t.datasource or "",
-                        t.import_batch_id or "",
-                    ])
+                    w.writerow(
+                        [
+                            t.ts.isoformat(),
+                            acct_names.get(t.account_id, ""),
+                            t.account_id,
+                            t.asset_symbol,
+                            t.side,
+                            str(t.qty) if t.qty is not None else "",
+                            str(t.price_quote) if t.price_quote is not None else "",
+                            str(t.total_quote) if t.total_quote is not None else "",
+                            t.quote_ccy or "",
+                            str(t.fee_qty) if t.fee_qty is not None else "",
+                            t.fee_asset or "",
+                            t.note or "",
+                            t.tags or "",
+                            t.tx_hash or "",
+                            t.external_id or "",
+                            t.datasource or "",
+                            t.import_batch_id or "",
+                        ]
+                    )
                 offset += len(rows)
     typer.echo(f"Exported transactions to {out}")
-

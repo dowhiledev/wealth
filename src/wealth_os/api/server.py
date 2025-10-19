@@ -80,10 +80,17 @@ def health():
 
 
 @app.get("/accounts", response_model=List[AccountOut])
-def api_list_accounts(name_like: Optional[str] = None, datasource: Optional[str] = None, limit: int = 100, offset: int = 0):
+def api_list_accounts(
+    name_like: Optional[str] = None,
+    datasource: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        rows = list_accounts(s, name_like=name_like, datasource=datasource, limit=limit, offset=offset)
+        rows = list_accounts(
+            s, name_like=name_like, datasource=datasource, limit=limit, offset=offset
+        )
         return [AccountOut(**row.dict()) for row in rows]
 
 
@@ -91,7 +98,14 @@ def api_list_accounts(name_like: Optional[str] = None, datasource: Optional[str]
 def api_create_account(body: AccountIn):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        row = create_account(s, name=body.name, type_=body.type, datasource=body.datasource, external_id=body.external_id, currency=body.currency)
+        row = create_account(
+            s,
+            name=body.name,
+            type_=body.type,
+            datasource=body.datasource,
+            external_id=body.external_id,
+            currency=body.currency,
+        )
         return AccountOut(**row.dict())
 
 
@@ -99,7 +113,15 @@ def api_create_account(body: AccountIn):
 def api_update_account(account_id: int, body: AccountIn):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        row = update_account(s, account_id, name=body.name, type_=body.type, datasource=body.datasource, external_id=body.external_id, currency=body.currency)
+        row = update_account(
+            s,
+            account_id,
+            name=body.name,
+            type_=body.type,
+            datasource=body.datasource,
+            external_id=body.external_id,
+            currency=body.currency,
+        )
         if not row:
             raise HTTPException(status_code=404, detail="Account not found")
         return AccountOut(**row.dict())
@@ -232,7 +254,9 @@ class PortfolioSummary(BaseModel):
 def api_portfolio_summary(quote: str = "USD", account_id: Optional[int] = None):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
-        positions, totals = summarize_portfolio(s, as_of=datetime.utcnow(), quote=quote, account_id=account_id)
+        positions, totals = summarize_portfolio(
+            s, as_of=datetime.utcnow(), quote=quote, account_id=account_id
+        )
         pos = [PositionOut(**p.__dict__) for p in positions]
         tot = TotalsOut(**totals)  # type: ignore[arg-type]
         return PortfolioSummary(positions=pos, totals=tot)
@@ -243,8 +267,14 @@ def api_stats(account_id: Optional[int] = None):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
         if account_id is not None:
-            accounts_count = s.exec(select(func.count(dbm.Account.id)).where(dbm.Account.id == account_id)).one()
-            tx_count = s.exec(select(func.count(dbm.Transaction.id)).where(dbm.Transaction.account_id == account_id)).one()
+            accounts_count = s.exec(
+                select(func.count(dbm.Account.id)).where(dbm.Account.id == account_id)
+            ).one()
+            tx_count = s.exec(
+                select(func.count(dbm.Transaction.id)).where(
+                    dbm.Transaction.account_id == account_id
+                )
+            ).one()
             return {"accounts": accounts_count, "transactions": tx_count}
         accounts_count = s.exec(select(func.count(dbm.Account.id))).one()
         tx_count = s.exec(select(func.count(dbm.Transaction.id))).one()

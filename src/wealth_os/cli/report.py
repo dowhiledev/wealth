@@ -26,7 +26,9 @@ def generate(
     until: Optional[datetime] = typer.Option(None, "--until"),
     quote: str = typer.Option("USD", "--quote"),
     account_id: Optional[int] = typer.Option(None, "--account-id"),
-    include_allocation: bool = typer.Option(True, "--include-allocation/--no-allocation"),
+    include_allocation: bool = typer.Option(
+        True, "--include-allocation/--no-allocation"
+    ),
     include_value: bool = typer.Option(True, "--include-value/--no-value"),
     include_pnl: bool = typer.Option(True, "--include-pnl/--no-pnl"),
 ) -> None:
@@ -43,13 +45,33 @@ def generate(
 
     if include_allocation:
         allocation_img = charts_dir / f"allocation_{as_of.date()}.png"
-        generate_allocation_pie(cfg.db_path, as_of=as_of, quote=quote, out=allocation_img, account_id=account_id)
+        generate_allocation_pie(
+            cfg.db_path,
+            as_of=as_of,
+            quote=quote,
+            out=allocation_img,
+            account_id=account_id,
+        )
     if include_value:
         value_img = charts_dir / f"value_{since.date()}_{until.date()}.png"
-        generate_value_timeseries_line(cfg.db_path, since=since, until=until, quote=quote, out=value_img, account_id=account_id)
+        generate_value_timeseries_line(
+            cfg.db_path,
+            since=since,
+            until=until,
+            quote=quote,
+            out=value_img,
+            account_id=account_id,
+        )
     if include_pnl:
         pnl_img = charts_dir / f"pnl_{since.date()}_{until.date()}.png"
-        generate_realized_pnl_bar(cfg.db_path, since=since, until=until, quote=quote, out=pnl_img, account_id=account_id)
+        generate_realized_pnl_bar(
+            cfg.db_path,
+            since=since,
+            until=until,
+            quote=quote,
+            out=pnl_img,
+            account_id=account_id,
+        )
 
     generate_pdf_report(
         cfg.db_path,
@@ -62,4 +84,3 @@ def generate(
         pnl_img=pnl_img,
     )
     typer.echo(f"Generated report at {out}")
-

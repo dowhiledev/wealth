@@ -29,7 +29,9 @@ def _dec(x) -> Decimal:
     return Decimal(str(x))
 
 
-def compute_holdings(session: Session, *, as_of: datetime, account_id: int | None = None) -> Dict[str, Decimal]:
+def compute_holdings(
+    session: Session, *, as_of: datetime, account_id: int | None = None
+) -> Dict[str, Decimal]:
     stmt = select(Transaction).where(Transaction.ts <= as_of)
     if account_id is not None:
         stmt = stmt.where(Transaction.account_id == account_id)
@@ -71,7 +73,9 @@ def compute_realized_and_open_cost_fifo(
     stmt = stmt.order_by(Transaction.ts.asc())
     rows = session.exec(stmt).all()
 
-    lots: Dict[str, List[Tuple[Decimal, Decimal]]] = {}  # asset -> list of (qty_remaining, cost_per_unit)
+    lots: Dict[
+        str, List[Tuple[Decimal, Decimal]]
+    ] = {}  # asset -> list of (qty_remaining, cost_per_unit)
     realized: Dict[str, Decimal] = {}
     for t in rows:
         if t.side == TxSide.buy:
@@ -79,12 +83,28 @@ def compute_realized_and_open_cost_fifo(
             if qty == 0:
                 continue
             # determine total cost in quote ccy
-            total_cost = _dec(t.total_quote) if t.total_quote is not None else (_dec(t.price_quote) * qty if t.price_quote is not None else Decimal(0))
+            total_cost = (
+                _dec(t.total_quote)
+                if t.total_quote is not None
+                else (
+                    _dec(t.price_quote) * qty
+                    if t.price_quote is not None
+                    else Decimal(0)
+                )
+            )
             cpu = (total_cost / qty) if qty != 0 else Decimal(0)
             lots.setdefault(t.asset_symbol.upper(), []).append([qty, cpu])
         elif t.side == TxSide.sell:
             qty_to_sell = _dec(t.qty)
-            proceeds = _dec(t.total_quote) if t.total_quote is not None else (_dec(t.price_quote) * qty_to_sell if t.price_quote is not None else Decimal(0))
+            proceeds = (
+                _dec(t.total_quote)
+                if t.total_quote is not None
+                else (
+                    _dec(t.price_quote) * qty_to_sell
+                    if t.price_quote is not None
+                    else Decimal(0)
+                )
+            )
             cost_accum = Decimal(0)
             sym = t.asset_symbol.upper()
             sym_lots = lots.setdefault(sym, [])
@@ -122,7 +142,9 @@ def summarize_portfolio(
     account_id: int | None = None,
 ) -> Tuple[List[Position], Dict[str, Decimal]]:
     holdings = compute_holdings(session, as_of=as_of, account_id=account_id)
-    realized_by_asset, open_cost = compute_realized_and_open_cost_fifo(session, as_of=as_of, account_id=account_id)
+    realized_by_asset, open_cost = compute_realized_and_open_cost_fifo(
+        session, as_of=as_of, account_id=account_id
+    )
     positions: List[Position] = []
     totals = {
         "value": Decimal(0),
@@ -131,7 +153,9 @@ def summarize_portfolio(
         "realized": Decimal(0),
     }
     for sym, qty in sorted(holdings.items()):
-        price_row = get_last_price(session, asset_symbol=sym, quote_ccy=quote, as_of=as_of)
+        price_row = get_last_price(
+            session, asset_symbol=sym, quote_ccy=quote, as_of=as_of
+        )
         price = _dec(price_row.price) if price_row is not None else None
         value = (qty * price) if (price is not None) else None
         cost = open_cost.get(sym)
@@ -157,4 +181,3 @@ def summarize_portfolio(
             totals["unrealized"] += unreal
         totals["realized"] += realized
     return positions, totals
-

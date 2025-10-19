@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from .base import NormalizedTx, TxImportSource
+from .base import NormalizedTx
 from .registry import register_import_source
 from wealth_os.db.models import TxSide
 
@@ -68,14 +68,15 @@ class GenericCSVImportSource:
     def supports_csv(cls) -> bool:
         return True
 
-    def parse_csv(self, path: str, options: Optional[Dict[str, Any]] = None) -> List[NormalizedTx]:
+    def parse_csv(
+        self, path: str, options: Optional[Dict[str, Any]] = None
+    ) -> List[NormalizedTx]:
         options = options or {}
         mapping: Dict[str, str] = options.get("mapping", {})
         encoding: Optional[str] = options.get("encoding")
         delimiter: Optional[str] = options.get("delimiter")
 
         # Default mapping assumes canonical column names present in the CSV
-        usecols = list(mapping.values()) if mapping else CANONICAL_COLUMNS
         try:
             df = pd.read_csv(
                 path,
@@ -90,6 +91,7 @@ class GenericCSVImportSource:
 
         out: List[NormalizedTx] = []
         for _, row in df.iterrows():
+
             def get(col_key: str) -> Optional[str]:
                 col_name = mapping.get(col_key, col_key)
                 if col_name not in row:
@@ -104,7 +106,7 @@ class GenericCSVImportSource:
                 raise RuntimeError("Missing required 'timestamp' column")
             try:
                 ts = pd.to_datetime(ts_raw, utc=False).to_pydatetime()
-                if getattr(ts, 'tzinfo', None) is not None:
+                if getattr(ts, "tzinfo", None) is not None:
                     ts = ts.replace(tzinfo=None)
             except Exception:
                 raise RuntimeError(f"Failed to parse timestamp: {ts_raw}")

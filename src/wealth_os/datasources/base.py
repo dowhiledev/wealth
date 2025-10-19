@@ -49,8 +49,7 @@ class PriceDataSource(Protocol):
     def id(cls) -> str:  # e.g., "coinmarketcap"
         ...
 
-    def get_quote(self, symbol: str, quote: str = "USD") -> PriceQuote:
-        ...
+    def get_quote(self, symbol: str, quote: str = "USD") -> PriceQuote: ...
 
     def get_ohlcv(
         self,
@@ -59,8 +58,7 @@ class PriceDataSource(Protocol):
         end: datetime,
         interval: str = "1d",
         quote: str = "USD",
-    ) -> List[OHLCVPoint]:
-        ...
+    ) -> List[OHLCVPoint]: ...
 
     def resolve_symbol_id(self, symbol: str) -> Optional[str]:
         """Optional: map symbol to provider-specific ID."""
@@ -77,6 +75,6 @@ class TxImportSource(Protocol):
     def supports_csv(cls) -> bool:
         return True
 
-    def parse_csv(self, path: str, options: Optional[Dict[str, Any]] = None) -> List[NormalizedTx]:
-        ...
-
+    def parse_csv(
+        self, path: str, options: Optional[Dict[str, Any]] = None
+    ) -> List[NormalizedTx]: ...

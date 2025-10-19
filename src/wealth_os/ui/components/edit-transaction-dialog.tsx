@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { api, type Tx, type TxIn, type Account } from "@/lib/api";
 import { toast } from "sonner";
 
-export function EditTransactionDialog({ tx, children, onSaved }: { tx: Tx; children?: React.ReactNode; onSaved?: () => void }) {
+export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: Tx; trigger?: React.ReactNode; children?: React.ReactNode; onSaved?: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
@@ -53,7 +53,7 @@ export function EditTransactionDialog({ tx, children, onSaved }: { tx: Tx; child
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        {children ? children : <Button variant="ghost" size="sm">Edit</Button>}
+        {trigger ? trigger : (children ? children : <Button variant="ghost" size="sm">Edit</Button>)}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>

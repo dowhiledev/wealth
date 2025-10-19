@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
 import requests
 
-from .base import OHLCVPoint, PriceDataSource, PriceQuote
+from .base import OHLCVPoint, PriceQuote
 from .registry import register_price_source
 
 
 class _CDClient:
     def __init__(self, api_key: str, base_url: Optional[str] = None):
         self.api_key = api_key
-        base = base_url or os.getenv("COINDESK_BASE_URL", "https://min-api.cryptocompare.com")
+        base = base_url or os.getenv(
+            "COINDESK_BASE_URL", "https://min-api.cryptocompare.com"
+        )
         if "://" not in base:
             base = "https://" + base
         self.base_url = base.rstrip("/")
@@ -42,15 +44,21 @@ class _CDClient:
         return r.json()
 
     def price_single(self, fsym: str, tsym: str = "USD") -> PriceQuote:
-        data = self.get("/data/price", params={"fsym": fsym.upper(), "tsyms": tsym.upper()})
+        data = self.get(
+            "/data/price", params={"fsym": fsym.upper(), "tsyms": tsym.upper()}
+        )
         key = tsym.upper()
         if key not in data:
             raise RuntimeError(f"No price found for {fsym}/{tsym}: {data}")
         price = Decimal(str(data[key]))
         ts = datetime.now(timezone.utc).replace(tzinfo=None)
-        return PriceQuote(symbol=fsym.upper(), quote_ccy=tsym.upper(), price=price, ts=ts)
+        return PriceQuote(
+            symbol=fsym.upper(), quote_ccy=tsym.upper(), price=price, ts=ts
+        )
 
-    def histoday(self, fsym: str, tsym: str, start: datetime, end: datetime) -> List[OHLCVPoint]:
+    def histoday(
+        self, fsym: str, tsym: str, start: datetime, end: datetime
+    ) -> List[OHLCVPoint]:
         # CryptoCompare histoday: returns up to 2000 daily points per request, ending at toTs
         max_points = 2000
         out: List[OHLCVPoint] = []
@@ -131,9 +139,10 @@ class CoindeskLegacyPriceSource:
         quote: str = "USD",
     ) -> List[OHLCVPoint]:
         if interval not in ("1d", "daily", "day", "histoday"):
-            raise NotImplementedError("Coindesk legacy provider supports daily candles only")
+            raise NotImplementedError(
+                "Coindesk legacy provider supports daily candles only"
+            )
         return self.client.histoday(symbol, quote, start, end)
 
     def resolve_symbol_id(self, symbol: str) -> Optional[str]:
         return symbol.upper()
-

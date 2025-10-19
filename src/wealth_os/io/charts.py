@@ -30,7 +30,9 @@ def generate_allocation_pie(
 ) -> Path:
     _ensure_parent(out)
     with session_scope(db_path) as s:
-        positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
+        positions, totals = summarize_portfolio(
+            s, as_of=as_of, quote=quote, account_id=account_id
+        )
     labels: List[str] = []
     values: List[float] = []
     for p in positions:
@@ -73,7 +75,9 @@ def generate_value_timeseries_line(
     with session_scope(db_path) as s:
         for d in _daterange(since.date(), until.date()):
             as_of = datetime(d.year, d.month, d.day, 23, 59, 59)
-            positions, totals = summarize_portfolio(s, as_of=as_of, quote=quote, account_id=account_id)
+            positions, totals = summarize_portfolio(
+                s, as_of=as_of, quote=quote, account_id=account_id
+            )
             xs.append(as_of)
             ys.append(float(totals["value"]))
 
@@ -110,7 +114,9 @@ def generate_realized_pnl_bar(
     # FIFO lots per asset
     lots: Dict[str, List[Tuple[Decimal, Decimal]]] = {}
     with session_scope(db_path) as s:
-        stmt = select(Transaction).where(Transaction.ts >= since, Transaction.ts <= until)
+        stmt = select(Transaction).where(
+            Transaction.ts >= since, Transaction.ts <= until
+        )
         if account_id is not None:
             stmt = stmt.where(Transaction.account_id == account_id)
         stmt = stmt.order_by(Transaction.ts.asc())
@@ -120,12 +126,28 @@ def generate_realized_pnl_bar(
                 qty = Decimal(str(t.qty))
                 if qty == 0:
                     continue
-                total = Decimal(str(t.total_quote)) if t.total_quote is not None else (Decimal(str(t.price_quote)) * qty if t.price_quote is not None else Decimal(0))
+                total = (
+                    Decimal(str(t.total_quote))
+                    if t.total_quote is not None
+                    else (
+                        Decimal(str(t.price_quote)) * qty
+                        if t.price_quote is not None
+                        else Decimal(0)
+                    )
+                )
                 cpu = (total / qty) if qty != 0 else Decimal(0)
                 lots.setdefault(t.asset_symbol.upper(), []).append([qty, cpu])
             elif t.side == TxSide.sell:
                 qty_to_sell = Decimal(str(t.qty))
-                proceeds = Decimal(str(t.total_quote)) if t.total_quote is not None else (Decimal(str(t.price_quote)) * qty_to_sell if t.price_quote is not None else Decimal(0))
+                proceeds = (
+                    Decimal(str(t.total_quote))
+                    if t.total_quote is not None
+                    else (
+                        Decimal(str(t.price_quote)) * qty_to_sell
+                        if t.price_quote is not None
+                        else Decimal(0)
+                    )
+                )
                 cost_accum = Decimal(0)
                 sym = t.asset_symbol.upper()
                 sym_lots = lots.setdefault(sym, [])
@@ -156,4 +178,3 @@ def generate_realized_pnl_bar(
     plt.savefig(out, dpi=150)
     plt.close()
     return out
-

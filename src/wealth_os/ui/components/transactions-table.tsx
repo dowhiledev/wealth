@@ -140,9 +140,11 @@ export function TransactionsTable({ rows, onChanged }: { rows: Row[]; onChanged?
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <EditTransactionDialog tx={tx} onSaved={onChanged}>
-              <DropdownMenuItem>Edit</DropdownMenuItem>
-            </EditTransactionDialog>
+            <EditTransactionDialog
+              tx={tx}
+              onSaved={onChanged}
+              trigger={<DropdownMenuItem onSelect={(e) => e.preventDefault()}>Edit</DropdownMenuItem>}
+            />
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={async () => { await api.tx.remove(tx.id); onChanged?.(); }}>Delete</DropdownMenuItem>
           </DropdownMenuContent>
@@ -150,7 +152,7 @@ export function TransactionsTable({ rows, onChanged }: { rows: Row[]; onChanged?
       );
     },
   },
-  ], [onChanged]);
+  ], [onChanged, acctMap]);
 
   const table = useReactTable({
     data: rows,

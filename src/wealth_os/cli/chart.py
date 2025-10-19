@@ -26,7 +26,9 @@ def chart_allocation(
 ) -> None:
     cfg = get_config()
     as_of = as_of or datetime.utcnow()
-    generate_allocation_pie(cfg.db_path, as_of=as_of, quote=quote, out=out, account_id=account_id)
+    generate_allocation_pie(
+        cfg.db_path, as_of=as_of, quote=quote, out=out, account_id=account_id
+    )
     typer.echo(f"Saved allocation chart to {out}")
 
 
@@ -40,7 +42,14 @@ def chart_value(
 ) -> None:
     cfg = get_config()
     until = until or datetime.utcnow()
-    generate_value_timeseries_line(cfg.db_path, since=since, until=until, quote=quote, out=out, account_id=account_id)
+    generate_value_timeseries_line(
+        cfg.db_path,
+        since=since,
+        until=until,
+        quote=quote,
+        out=out,
+        account_id=account_id,
+    )
     typer.echo(f"Saved value chart to {out}")
 
 
@@ -54,6 +63,12 @@ def chart_pnl(
 ) -> None:
     cfg = get_config()
     until = until or datetime.utcnow()
-    generate_realized_pnl_bar(cfg.db_path, since=since, until=until, quote=quote, out=out, account_id=account_id)
+    generate_realized_pnl_bar(
+        cfg.db_path,
+        since=since,
+        until=until,
+        quote=quote,
+        out=out,
+        account_id=account_id,
+    )
     typer.echo(f"Saved PnL chart to {out}")
-

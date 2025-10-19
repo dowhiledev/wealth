@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from typing import Optional
 
 import typer
 from rich.table import Table
 
 from wealth_os.cli.ui import console, success_panel, info_panel
-from wealth_os.core.context import Context, load_context, save_context, set_value, unset_value, get_context_path
+from wealth_os.core.context import (
+    load_context,
+    set_value,
+    unset_value,
+    get_context_path,
+)
 
 
 app = typer.Typer(help="Manage CLI context defaults")
@@ -18,7 +22,9 @@ def show() -> None:
     table = Table(title="Wealth Context")
     table.add_column("Key")
     table.add_column("Value")
-    table.add_row("account_id", str(ctx.account_id) if ctx.account_id is not None else "-")
+    table.add_row(
+        "account_id", str(ctx.account_id) if ctx.account_id is not None else "-"
+    )
     table.add_row("quote", ctx.quote or "-")
     table.add_row("providers", ctx.providers or "-")
     table.add_row("datasource", ctx.datasource or "-")
@@ -60,4 +66,3 @@ def unset(key: str) -> None:
         console.print(f"[red]Unknown context key: {key}[/red]")
         raise typer.Exit(code=1)
     console.print(success_panel(f"Unset {key}"))
-
