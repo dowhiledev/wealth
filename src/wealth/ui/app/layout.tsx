@@ -6,6 +6,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { DashboardProvider } from "@/components/dashboard-provider";
+import { PageTransition } from "@/components/page-transition";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,7 +42,9 @@ export default function RootLayout({
             <DashboardProvider>
               <SiteHeader />
               <div className="flex flex-1 flex-col p-4 lg:p-6">
-                <div className="mx-auto w-full max-w-5xl">{children}</div>
+                <PageTransition>
+                  <div className="mx-auto w-full max-w-5xl">{children}</div>
+                </PageTransition>
               </div>
             </DashboardProvider>
           </SidebarInset>
