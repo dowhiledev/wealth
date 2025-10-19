@@ -1,51 +1,73 @@
-Wealth CLI
-===========
+WealthOS
+========
 
-CLI-based wealth management tool focused on crypto first (extensible to others).
+WealthOS is a modern, privacy‑first portfolio tracker with a fast CLI, a clean web UI (Next.js), and extensible data sources. It focuses on crypto first and stays flexible for other assets.
+
+Highlights
+---------
+
+- Clean dashboard with KPIs, allocation, P&L over time, top holdings, and recent activity
+- Multi‑account filtering, dark mode, centered responsive layout
+- Powerful transactions tables (edit in dialog, batch delete, sort/filter, column visibility)
+- Robust API (FastAPI) and CLI (Typer) for full control and automation
+- CSV import/export, charts, and PDF reports
 
 Quick Start
 -----------
 
-- Ensure Python 3.11+
-- Install deps (uv):
-  - `uv sync` or install extras if needed
-- Configure `.env` (copy `.env.example`):
-  - `COINMARKETCAP_API_KEY=...`
-  - Optional: `COINMARKETCAP_BASE_URL=https://sandbox-api.coinmarketcap.com`
-  - Optional: `WEALTH_DB_PATH=wealth.db`, `WEALTH_BASE_CURRENCY=USD`
+Prereqs: Python 3.11+, Node.js 18+ (for building the UI)
 
-CLI Usage
----------
+1) Install Python deps (using uv)
+- `uv sync`
 
-- Help: `PYTHONPATH=src uv run python -m wealth --help`
-- Init DB: `PYTHONPATH=src uv run python -m wealth init`
+2) Configure environment
+- Copy `.env.example` to `.env`
+- Set `COINMARKETCAP_API_KEY=...` (optional, for prices)
+- Optionals: `WEALTH_DB_PATH=wealth.db`, `WEALTH_BASE_CURRENCY=USD`
 
-Accounts
-- Add: `PYTHONPATH=src uv run python -m wealth account add --name Main --type exchange`
-- List: `PYTHONPATH=src uv run python -m wealth account list`
+3) Initialize the DB
+- `uv run wealth init`
+- Optionally seed demo data: `uv run wealth seed`
 
-Transactions
-- Add: `PYTHONPATH=src uv run python -m wealth tx add --account-id 1 --asset BTC --side buy --qty 0.1 --price-quote 30000 --total-quote 3000`
-- List: `PYTHONPATH=src uv run python -m wealth tx list --account-id 1`
+4) Run API + UI
+- Production UI (recommended): `uv run wealth ui`
+  - Force rebuild if needed: `... wealth ui --build`
+  - Custom UI/API ports: `... wealth ui --ui-port 4000 --api-port 8002`
+- Dev UI: `uv run wealth ui --dev`
 
-Prices (CoinMarketCap)
-- Quote: `PYTHONPATH=src uv run python -m wealth price quote --asset BTC`
-- Sync OHLCV: `PYTHONPATH=src uv run python -m wealth price sync --assets BTC --since 2024-01-01 --quote USD --interval 1d`
+CLI Essentials
+--------------
 
-Import/Export CSV
-- Import: `PYTHONPATH=src uv run python -m wealth import csv --file tx.csv --account-id 1`
-- Export: `PYTHONPATH=src uv run python -m wealth export csv --out exported.csv --account-id 1`
+- Help: `uv run wealth --help`
+- Accounts: `uv run wealth account add/list/update/remove`
+- Transactions: `uv run wealth tx add/list/update/remove`
+- Prices: `uv run wealth price quote|sync`
+- Portfolio: `uv run wealth portfolio summary|chart`
+- CSV: `uv run wealth import csv ...` / `uv run wealth export csv ...`
+- Reports: `uv run wealth report generate`
 
-Portfolio
-- Summary: `PYTHONPATH=src uv run python -m wealth portfolio summary --quote USD`
+Web UI Overview
+---------------
 
-Charts & Report
-- Allocation chart: `PYTHONPATH=src uv run python -m wealth chart allocation --out reports/alloc.png`
-- Value chart: `PYTHONPATH=src uv run python -m wealth chart value --out reports/value.png --since 2024-01-01`
-- PnL chart: `PYTHONPATH=src uv run python -m wealth chart pnl --out reports/pnl.png --since 2024-01-01`
-- PDF report: `PYTHONPATH=src uv run python -m wealth report generate --out reports/wealth_report.pdf`
+- Dashboard: KPIs, Portfolio Allocation, Realized P&L, Top Holdings by Value, Recent Activity
+- Accounts: Grid of accounts; click to open an account view
+- Account View: KPIs scoped to that account, allocation, P&L, volume, and a full transactions table
+- Transactions: Full DataTable with edit, delete, batch operations, filtering, column visibility
 
-Testing
--------
+Design
+------
 
-- Run test suite: `uv run pytest -q`
+- Centered content on large screens; clean spacing; dark mode toggle in the sidebar
+- Accessible controls and meaningful labels (e.g., “Trade Volume (Buy vs Sell)”, “Recent Activity”)
+
+Development
+-----------
+
+- Run tests: `uv run pytest -q`
+- Lint/typecheck (suggested): ruff/mypy/eslint if you use them locally
+
+Licensing & Contributing
+------------------------
+
+- License: MIT (see LICENSE)
+- Contributions welcome — read CONTRIBUTING.md for guidelines
