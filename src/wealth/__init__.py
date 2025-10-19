@@ -460,9 +460,15 @@ def run_ui(
     ui_path: str = typer.Option("src/wealth/ui", "--ui-path", help="Path to Next.js UI project"),
     api_port: int = typer.Option(8001, "--api-port"),
     api_host: str = typer.Option("127.0.0.1", "--api-host"),
-    ui_cmd: str = typer.Option("npm run dev", "--ui-cmd", help="Command to start UI dev server"),
+    dev: bool = typer.Option(False, "--dev", help="Run Next.js in dev mode (next dev). If false, runs production server (next start)."),
+    build: bool = typer.Option(False, "--build", help="Force building the UI before starting (next build)."),
+    ui_port: int = typer.Option(3000, "--ui-port", help="Port for Next.js when running in production"),
 ) -> None:
-    """Start the FastAPI backend and Next.js dev server."""
+    """Start the FastAPI backend and serve the UI.
+
+    By default this starts the UI in production mode (next start). Use --dev to run the dev server.
+    If --build is provided (or no build exists), the UI will be built before starting.
+    """
     cfg = get_config()
     init_db(cfg.db_path)
 
@@ -476,21 +482,53 @@ def run_ui(
     console.print(Panel.fit(f"API running at http://{api_host}:{api_port} (docs at /docs)", border_style="green"))
 
     # Start Next.js UI
+    env = dict(**os.environ)
+    env["NEXT_PUBLIC_API_BASE"] = f"http://{api_host}:{api_port}"
+
+    if dev:
+        ui_cmd = "npm run dev"
+        if not shutil.which(ui_cmd.split()[0]):
+            console.print("[yellow]Note: npm not found. Run the UI manually.[/yellow]")
+            console.print(f"cd {ui_path} && {ui_cmd}")
+            console.print("Backend API remains running above.")
+            t.join()
+            return
+        try:
+            proc = subprocess.Popen(ui_cmd, cwd=ui_path, shell=True, env=env)
+            console.print(Panel.fit(f"UI starting in DEV with {ui_cmd} in {ui_path}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
+            proc.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            console.print("[yellow]Shutting down...[/yellow]")
+        return
+
+    # Production: ensure build exists or build if requested/required
+    next_build_dir = os.path.join(ui_path, ".next")
+    if build or not os.path.isdir(next_build_dir):
+        console.print(Panel.fit("Building UI for production (npm run build)...", border_style="cyan"))
+        try:
+            # Install deps if needed, then build
+            subprocess.check_call("npm install --silent", cwd=ui_path, shell=True, env=env)
+            subprocess.check_call("npm run build", cwd=ui_path, shell=True, env=env)
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]UI build failed:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    # Run next start in production
+    env["PORT"] = str(ui_port)
+    ui_cmd = "npm run start"
     if not shutil.which(ui_cmd.split()[0]):
-        console.print("[yellow]Note: UI command not found. Please run the UI manually.[/yellow]")
+        console.print("[yellow]Note: npm not found. Run the UI manually.[/yellow]")
         console.print(f"cd {ui_path} && {ui_cmd}")
         console.print("Backend API remains running above.")
         t.join()
         return
-
-    env = dict(**os.environ)
-    env["NEXT_PUBLIC_API_BASE"] = f"http://{api_host}:{api_port}"
     try:
         proc = subprocess.Popen(ui_cmd, cwd=ui_path, shell=True, env=env)
-        console.print(Panel.fit(f"UI starting with {ui_cmd} in {ui_path}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
+        console.print(Panel.fit(f"UI starting in PROD with {ui_cmd} on port {ui_port}. NEXT_PUBLIC_API_BASE={env['NEXT_PUBLIC_API_BASE']}", border_style="cyan"))
         proc.wait()
     except KeyboardInterrupt:
         pass
     finally:
-        # Server will stop when process exits; thread is daemon
         console.print("[yellow]Shutting down...[/yellow]")
