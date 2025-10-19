@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from wealth.db.repo import (
+from wealth_os.db.repo import (
     session_scope,
     create_account,
     list_accounts,
@@ -10,8 +10,8 @@ from wealth.db.repo import (
     update_transaction,
     delete_transaction,
 )
-from wealth.db.models import AccountType, TxSide
-from wealth.core.config import get_config
+from wealth_os.db.models import AccountType, TxSide
+from wealth_os.core.config import get_config
 
 
 def test_account_and_tx_crud(tmp_db_path):

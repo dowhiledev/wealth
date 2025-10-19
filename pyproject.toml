@@ -1,5 +1,5 @@
 [project]
-name = "wealth"
+name = "wealth-os"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-wealth = "wealth:main"
+wealth = "wealth_os:main"
 
 [build-system]
 requires = ["hatchling"]

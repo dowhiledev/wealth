@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from wealth.core.config import get_config
-from wealth.core.valuation import summarize_portfolio
-from wealth.db.repo import session_scope, create_account, create_transaction, upsert_price
-from wealth.db.models import AccountType, TxSide
+from wealth_os.core.config import get_config
+from wealth_os.core.valuation import summarize_portfolio
+from wealth_os.db.repo import session_scope, create_account, create_transaction, upsert_price
+from wealth_os.db.models import AccountType, TxSide
 
 
 def test_fifo_valuation(tmp_db_path):

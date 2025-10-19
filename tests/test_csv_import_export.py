@@ -3,9 +3,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from wealth import app as wealth_app
-from wealth.core.config import get_config
-from wealth.db.repo import session_scope, list_transactions, list_accounts
+from wealth_os import app as wealth_app
+from wealth_os.core.config import get_config
+from wealth_os.db.repo import session_scope, list_transactions, list_accounts
 
 
 def test_import_export_roundtrip(tmp_path: Path, tmp_db_path):

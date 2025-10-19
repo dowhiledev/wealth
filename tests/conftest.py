@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from wealth.db.engine import init_db
-from wealth.core.config import get_config
+from wealth_os.db.engine import init_db
+from wealth_os.core.config import get_config
 
 
 @pytest.fixture()
