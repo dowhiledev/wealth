@@ -16,10 +16,10 @@ Dev setup
 1) Prereqs: Python 3.11+, Node.js 18+, uv (or your preferred virtual env tool)
 2) Install Python deps: `uv sync`
 3) (Optional) Configure `.env` (copy from `.env.example`)
-4) Initialize DB: `PYTHONPATH=src uv run python -m wealth init`
+4) Initialize DB: `uv run wealth init` (or `uv run python -m wealth_os init`)
 5) Run API + UI
-   - Prod UI: `PYTHONPATH=src uv run python -m wealth ui --build`
-   - Dev UI: `PYTHONPATH=src uv run python -m wealth ui --dev`
+   - Prod UI: `uv run wealth ui --build`
+   - Dev UI: `uv run wealth ui --dev`
 
 Code style & tests
 ------------------
@@ -27,7 +27,7 @@ Code style & tests
 - Keep changes focused; avoid unrelated refactors.
 - Follow existing naming and file structure.
 - Run tests: `uv run pytest -q`
-- UI changes should build locally: `cd src/wealth/ui && npm install && npm run build`
+- UI changes should build locally: `cd src/wealth_os/ui && npm install && npm run build`
 
 Pull requests
 -------------
@@ -41,3 +41,7 @@ License
 
 By contributing, you agree that your contributions will be licensed under the MIT license (see LICENSE).
 
+Releases
+--------
+
+Maintainers: see the “Publish to PyPI” section in README.md for building and uploading distributions.
