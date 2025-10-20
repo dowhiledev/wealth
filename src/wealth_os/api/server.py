@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from wealth_os.core.config import get_config
-from wealth_os.core.context import load_context, save_context, Context
+from wealth_os.core.context import load_context, save_context
 from wealth_os.db.repo import (
     session_scope,
     list_accounts,
@@ -101,7 +101,9 @@ class QuoteOut(BaseModel):
 def _provider_order(preferred: str | None = None) -> list[str]:
     # Context override > env var
     ctx = load_context()
-    default = (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk"))
+    default = ctx.providers or os.getenv(
+        "WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk"
+    )
     base = [s.strip() for s in default.split(",") if s.strip()]
     out: list[str] = []
     if preferred and preferred not in out:
@@ -112,12 +114,14 @@ def _provider_order(preferred: str | None = None) -> list[str]:
     return out
 
 
-def _latest_quote(session, symbol: str, quote: str, first_provider: str | None = None) -> QuoteOut | None:
+def _latest_quote(
+    session, symbol: str, quote: str, first_provider: str | None = None
+) -> QuoteOut | None:
     sources = get_price_sources()
     # If a provider was explicitly requested, try it first; otherwise use stored preference
     pref = first_provider or get_asset_preference(session, symbol)
     order = _provider_order(pref)
-    last_err: Exception | None = None
+    # Try providers in order until one returns a quote
     sym = symbol.upper()
     qccy = (quote or "USD").upper()
     for name in order:
@@ -138,12 +142,72 @@ def _latest_quote(session, symbol: str, quote: str, first_provider: str | None =
                 source=src.id(),
             )
             return QuoteOut(
-                symbol=q.symbol, quote_ccy=q.quote_ccy, price=q.price, ts=q.ts, source=src.id()
+                symbol=q.symbol,
+                quote_ccy=q.quote_ccy,
+                price=q.price,
+                ts=q.ts,
+                source=src.id(),
             )
-        except Exception as e:  # pragma: no cover - network errors
-            last_err = e
+        except Exception:  # pragma: no cover - network errors
             continue
     return None
+
+
+def _ensure_daily_prices(
+    session,
+    symbol: str,
+    quote: str,
+    start: datetime,
+    end: datetime,
+    preferred: str | None = None,
+) -> None:
+    """Best-effort: fetch and cache daily OHLCV for [start, end] if price table lacks coverage.
+
+    This avoids zero valuations in time-series when only a recent quote exists.
+    """
+    sources = get_price_sources()
+    order = _provider_order(preferred)
+    sym = symbol.upper()
+    qccy = (quote or "USD").upper()
+    # Quick check: do we have any price row within the period?
+    from sqlmodel import select
+    from wealth_os.db.models import Price
+
+    have = session.exec(
+        select(Price)
+        .where(
+            (Price.asset_symbol == sym)
+            & (Price.quote_ccy == qccy)
+            & (Price.ts >= start)
+            & (Price.ts <= end)
+        )
+        .limit(1)
+    ).first()
+    if have:
+        return
+    for name in order:
+        if name not in sources:
+            continue
+        try:
+            cls = sources[name]
+            src = cls()  # type: ignore[call-arg]
+            points = src.get_ohlcv(sym, start=start, end=end, interval="1d", quote=qccy)
+            if not points:
+                continue
+            for p in points:
+                upsert_price(
+                    session,
+                    asset_symbol=sym,
+                    quote_ccy=qccy,
+                    ts=p.ts,
+                    price=p.close,
+                    source=src.id(),
+                )
+            set_asset_preference(session, sym, src.id())
+            return
+        except Exception:  # pragma: no cover - network/env errors
+            continue
+    # If we reach here, we couldn't fetch — silently continue so the series uses what exists
 
 
 @app.get("/accounts", response_model=List[AccountOut])
@@ -237,7 +301,11 @@ def api_create_tx(body: TxIn):
         eff_price = body.price_quote
         if eff_price is None and body.side in (TxSide.buy, TxSide.sell):
             # If datasource matches a known provider, prefer it for this request
-            req_provider = body.datasource if body.datasource in get_price_sources().keys() else None
+            req_provider = (
+                body.datasource
+                if body.datasource in get_price_sources().keys()
+                else None
+            )
             q = _latest_quote(s, body.asset_symbol, body.quote_ccy, req_provider)
             if q is not None:
                 eff_price = q.price
@@ -271,7 +339,11 @@ def api_update_tx(tx_id: int, body: TxIn):
     with session_scope(cfg.db_path) as s:
         eff_price = body.price_quote
         if eff_price is None and body.side in (TxSide.buy, TxSide.sell):
-            req_provider = body.datasource if body.datasource in get_price_sources().keys() else None
+            req_provider = (
+                body.datasource
+                if body.datasource in get_price_sources().keys()
+                else None
+            )
             q = _latest_quote(s, body.asset_symbol, body.quote_ccy, req_provider)
             if q is not None:
                 eff_price = q.price
@@ -445,6 +517,14 @@ def api_value_series(
     cfg = get_config()
     out: list[ValuePoint] = []
     with session_scope(cfg.db_path) as s:
+        # Attempt to ensure daily prices exist for held assets across the period
+        try:
+            holds = compute_holdings(s, as_of=end, account_id=account_id)
+            for sym in holds.keys():
+                pref = get_asset_preference(s, sym)
+                _ensure_daily_prices(s, sym, quote, start, end, preferred=pref)
+        except Exception:
+            pass
         cur = start
         while cur <= end:
             _positions, totals = summarize_portfolio(
@@ -611,7 +691,9 @@ def api_import_transactions_csv(
     skipped = 0
 
     # persist upload to a temp file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix) as tmp:
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=Path(file.filename or "").suffix
+    ) as tmp:
         tmp.write(file.file.read())
         tmp_path = tmp.name
 
@@ -620,13 +702,18 @@ def api_import_transactions_csv(
         parsed = src.parse_csv(tmp_path, options={"mapping": {}})
         with session_scope(cfg.db_path) as s:
             batch = create_import_batch(
-                s, datasource=datasource or "generic_csv", source_file=str(file.filename), summary=None
+                s,
+                datasource=datasource or "generic_csv",
+                source_file=str(file.filename),
+                summary=None,
             )
             for row in parsed:
                 # dedupe
                 if dedupe_by == "external_id" and row.external_id:
                     if find_tx_by_external_id(
-                        s, datasource=datasource or "generic_csv", external_id=row.external_id
+                        s,
+                        datasource=datasource or "generic_csv",
+                        external_id=row.external_id,
                     ):
                         skipped += 1
                         continue
@@ -675,7 +762,9 @@ def api_price_quote(asset: str, quote: str = "USD", provider: Optional[str] = No
         req_provider = provider if provider in get_price_sources().keys() else None
         q = _latest_quote(s, asset, quote, req_provider)
         if q is None:
-            raise HTTPException(status_code=502, detail="Failed to fetch quote from providers")
+            raise HTTPException(
+                status_code=502, detail="Failed to fetch quote from providers"
+            )
         return q
 
 

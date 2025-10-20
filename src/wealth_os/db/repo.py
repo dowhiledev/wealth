@@ -301,7 +301,11 @@ def update_transaction(
     # Derive missing monetary fields for buy/sell after applying changes
     try:
         if tx.side in (TxSide.buy, TxSide.sell):
-            if tx.price_quote is not None and tx.total_quote is None and tx.qty is not None:
+            if (
+                tx.price_quote is not None
+                and tx.total_quote is None
+                and tx.qty is not None
+            ):
                 tx.total_quote = tx.price_quote * tx.qty
             elif (
                 tx.total_quote is not None
