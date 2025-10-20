@@ -1,7 +1,7 @@
 [project]
 name = "wealth-os"
-version = "0.1.1"
-description = "Add your description here"
+version = "0.1.2"
+description = "A comprehensive open-source wealth management tool."
 readme = "README.md"
 authors = [
     { name = "chandralegend", email = "irugalbandarachandra@gmail.com" }
