@@ -7,6 +7,7 @@ import { WealthAllocation } from "@/components/wealth-allocation";
 import { WealthPnL } from "@/components/wealth-pnl";
 import { WealthTopAssets } from "@/components/wealth-top-assets";
 import { WealthVolume } from "@/components/wealth-volume";
+import { WealthAssetPnL } from "@/components/wealth-asset-pnl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TransactionsTable } from "@/components/transactions-table";
 import { EditAccountButton } from "@/components/edit-account-dialog";
@@ -39,6 +40,7 @@ export default function AccountDetailPage() {
         <WealthAllocation accountIds={[idNum]} key={`alloc-${reloadKey}`} />
         <WealthPnL accountIds={[idNum]} key={`pnl-${reloadKey}`} />
         <WealthTopAssets accountIds={[idNum]} key={`top-${reloadKey}`} />
+        <WealthAssetPnL accountId={idNum} />
         <WealthVolume accountIds={[idNum]} key={`vol-${reloadKey}`} />
       </div>
 

@@ -7,14 +7,13 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { api, type Tx } from "@/lib/api";
 import { formatAmount } from "@/lib/utils";
 
-type SeriesPoint = { date: string; pnl: number };
+type SeriesPoint = { date: string; value: number };
 
 const chartConfig = {
-  pnl: {
-    label: "Realized PnL",
+  value: {
+    label: "Value",
     color: "var(--primary)",
   },
 } satisfies ChartConfig;
@@ -22,68 +21,25 @@ const chartConfig = {
 export function WealthPnL({ accountIds }: { accountIds?: number[] }) {
   const [timeRange, setTimeRange] = useState<"90d" | "30d" | "7d">("90d");
   const [series, setSeries] = useState<SeriesPoint[]>([]);
-  const [asset, setAsset] = useState<string>("all");
-  const [assetOptions, setAssetOptions] = useState<string[]>([]);
 
   useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8001";
     const load = async () => {
-      // Load up to 5000 latest txs to compute FIFO realized PnL
-      let txs: Tx[] = [];
-      if (!accountIds || accountIds.length === 0) {
-        txs = await api.tx.list({ limit: 5000 });
-      } else if (accountIds.length === 1) {
-        txs = await api.tx.list({ account_id: accountIds[0], limit: 5000 });
-      } else {
-        const lists = await Promise.all(accountIds.map((id) => api.tx.list({ account_id: id, limit: 5000 })));
-        txs = lists.flat();
-      }
-      // set asset options
-      const assets = Array.from(new Set(txs.map(t => String(t.asset_symbol).toUpperCase()))).sort();
-      setAssetOptions(["all", ...assets]);
-      txs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
-      // FIFO per asset: lots as [qty_remaining, cost_per_unit]
-      const lots: Record<string, Array<[number, number]>> = {};
-      const daily: Record<string, number> = {};
-      for (const t of txs) {
-        const sym = (t.asset_symbol || "").toUpperCase();
-        if (asset !== "all" && sym !== asset.toUpperCase()) continue;
-        const qty = Number(t.qty || 0);
-        const price = t.price_quote != null ? Number(t.price_quote) : undefined;
-        const total = t.total_quote != null ? Number(t.total_quote) : undefined;
-        const dateKey = new Date(t.ts).toISOString().slice(0, 10);
-        if (t.side === "buy") {
-          const totalCost = total ?? (price != null ? price * qty : 0);
-          const cpu = qty !== 0 ? totalCost / qty : 0;
-          if (!lots[sym]) lots[sym] = [];
-          lots[sym].push([qty, cpu]);
-        } else if (t.side === "sell") {
-          let remaining = qty;
-          let costAccum = 0;
-          const proceeds = total ?? (price != null ? price * qty : 0);
-          const symLots = lots[sym] || (lots[sym] = []);
-          while (remaining > 0 && symLots.length > 0) {
-            const [lqty, cpu] = symLots[0];
-            const take = Math.min(lqty, remaining);
-            costAccum += take * cpu;
-            const leftover = lqty - take;
-            remaining -= take;
-            if (leftover <= 0) symLots.shift();
-            else symLots[0] = [leftover, cpu];
-          }
-          const realized = proceeds - costAccum;
-          daily[dateKey] = (daily[dateKey] ?? 0) + realized;
-        }
-      }
-      const dates = Object.keys(daily).sort();
-      let accum = 0;
-      const s: SeriesPoint[] = dates.map((d) => {
-        accum += daily[d];
-        return { date: d, pnl: Number(accum.toFixed(8)) };
-      });
+      const q = new URLSearchParams();
+      const now = new Date();
+      const days = 90; // fetch last 90 days, we trim by UI range
+      const since = new Date(now);
+      since.setDate(since.getDate() - days);
+      q.set("since", since.toISOString());
+      q.set("until", now.toISOString());
+      if (accountIds && accountIds.length === 1) q.set("account_id", String(accountIds[0]));
+      const res = await fetch(`${base}/portfolio/value_series?${q.toString()}`);
+      const rows = (await res.json()) as Array<{ date: string; value: number }>;
+      const s: SeriesPoint[] = rows.map((r) => ({ date: r.date, value: Number(r.value) }));
       setSeries(s);
     };
     load().catch(() => {});
-  }, [accountIds, asset]);
+  }, [accountIds]);
 
   const filtered = useMemo(() => {
     if (series.length === 0) return series;
@@ -97,7 +53,7 @@ export function WealthPnL({ accountIds }: { accountIds?: number[] }) {
   return (
     <Card className="@container/card">
         <CardHeader>
-          <CardTitle>Realized P&L</CardTitle>
+          <CardTitle>Portfolio Value Over Time</CardTitle>
           <CardDescription>
           <span className="hidden @[540px]/card:block">Cumulative, last {timeRange.replace("d", " days")}</span>
           <span className="@[540px]/card:hidden">Cumulative</span>
@@ -128,25 +84,15 @@ export function WealthPnL({ accountIds }: { accountIds?: number[] }) {
               <SelectItem value="7d" className="rounded-lg">Last 7 days</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={asset} onValueChange={(v: string) => setAsset(v)}>
-            <SelectTrigger className="w-40" size="sm" aria-label="Select asset">
-              <SelectValue placeholder="All assets" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl">
-              {assetOptions.map(a => (
-                <SelectItem key={a} value={a}>{a === 'all' ? 'All assets' : a}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </CardAction>
       </CardHeader>
       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
         <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
           <AreaChart data={filtered}>
             <defs>
-              <linearGradient id="fillPnL" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-pnl)" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="var(--color-pnl)" stopOpacity={0.1} />
+              <linearGradient id="fillValue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-value)" stopOpacity={0.8} />
+                <stop offset="95%" stopColor="var(--color-value)" stopOpacity={0.1} />
               </linearGradient>
             </defs>
             <CartesianGrid vertical={false} />
@@ -174,7 +120,7 @@ export function WealthPnL({ accountIds }: { accountIds?: number[] }) {
                   labelFormatter={(value) => new Date(value as string).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   formatter={(value) => (
                     <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Realized PnL</span>
+                      <span className="text-muted-foreground">Value</span>
                       <span className="text-foreground font-mono font-medium tabular-nums">{formatAmount(value as number)}</span>
                     </div>
                   )}
@@ -183,7 +129,7 @@ export function WealthPnL({ accountIds }: { accountIds?: number[] }) {
                 />
               }
             />
-            <Area dataKey="pnl" type="natural" fill="url(#fillPnL)" stroke="var(--color-pnl)" />
+            <Area dataKey="value" type="natural" fill="url(#fillValue)" stroke="var(--color-value)" />
           </AreaChart>
         </ChartContainer>
       </CardContent>

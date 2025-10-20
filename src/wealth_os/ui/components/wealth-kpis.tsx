@@ -55,6 +55,13 @@ export function WealthKPIs({ accountIds, showAccountsKPI = true }: { accountIds?
   const unrealStr = useMemo(() => (totals ? formatAmount(totals.unrealized) : "-"), [totals]);
   const realizedStr = useMemo(() => (totals ? formatAmount(totals.realized) : "-"), [totals]);
   const costStr = useMemo(() => (totals ? formatAmount(totals.cost_open) : "-"), [totals]);
+  const roiStr = useMemo(() => {
+    if (!totals) return "-";
+    const cost = Number(totals.cost_open || 0);
+    const unrl = Number(totals.unrealized || 0);
+    const roi = cost !== 0 ? (unrl / cost) * 100 : 0;
+    return `${roi.toFixed(2)}%`;
+  }, [totals]);
 
   return (
     <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs md:grid-cols-2 xl:grid-cols-4">
@@ -72,11 +79,12 @@ export function WealthKPIs({ accountIds, showAccountsKPI = true }: { accountIds?
       </Card>
       <Card className="min-w-0 @container/card">
         <CardHeader>
-          <CardDescription>Realized PnL</CardDescription>
+          <CardDescription>Unrealized PnL</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums break-words leading-tight @[250px]/card:text-3xl">
-            ${realizedStr}
+            ${unrealStr}
           </CardTitle>
-          <div className="mt-1">
+          <div className="mt-1 flex gap-2">
+            <Badge variant="outline" className="whitespace-normal break-words text-xs px-2 py-0.5">ROI {roiStr}</Badge>
             <Badge variant="outline" className="whitespace-normal break-words text-xs px-2 py-0.5">Cost ${costStr}</Badge>
           </div>
         </CardHeader>

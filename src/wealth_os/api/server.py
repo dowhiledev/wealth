@@ -377,6 +377,85 @@ def api_stats(account_id: Optional[int] = None):
     return {"accounts": accounts_count, "transactions": tx_count}
 
 
+class RoiPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    roi: float  # fraction, e.g., 0.12 for 12%
+    value: Optional[float] = None
+    cost_open: Optional[float] = None
+
+
+@app.get("/portfolio/roi_series", response_model=list[RoiPoint])
+def api_roi_series(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    account_id: Optional[int] = None,
+    quote: str = "USD",
+):
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    if until is None:
+        until = now
+    if since is None:
+        since = until - timedelta(days=90)
+    # Normalize to dates (strip time)
+    start = datetime(since.year, since.month, since.day, 23, 59, 59)
+    end = datetime(until.year, until.month, until.day, 23, 59, 59)
+
+    cfg = get_config()
+    out: list[RoiPoint] = []
+    with session_scope(cfg.db_path) as s:
+        cur = start
+        while cur <= end:
+            positions, totals = summarize_portfolio(
+                s, as_of=cur, quote=quote, account_id=account_id
+            )
+            v = float(totals["value"]) if totals["value"] is not None else 0.0
+            c = float(totals["cost_open"]) if totals["cost_open"] is not None else 0.0
+            roi = (v - c) / c if c not in (None, 0) else 0.0
+            out.append(
+                RoiPoint(date=cur.strftime("%Y-%m-%d"), roi=roi, value=v, cost_open=c)
+            )
+            cur += timedelta(days=1)
+    return out
+
+
+class ValuePoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    value: float
+
+
+@app.get("/portfolio/value_series", response_model=list[ValuePoint])
+def api_value_series(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    account_id: Optional[int] = None,
+    quote: str = "USD",
+):
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    if until is None:
+        until = now
+    if since is None:
+        since = until - timedelta(days=90)
+    start = datetime(since.year, since.month, since.day, 23, 59, 59)
+    end = datetime(until.year, until.month, until.day, 23, 59, 59)
+
+    cfg = get_config()
+    out: list[ValuePoint] = []
+    with session_scope(cfg.db_path) as s:
+        cur = start
+        while cur <= end:
+            _positions, totals = summarize_portfolio(
+                s, as_of=cur, quote=quote, account_id=account_id
+            )
+            v = float(totals["value"]) if totals["value"] is not None else 0.0
+            out.append(ValuePoint(date=cur.strftime("%Y-%m-%d"), value=v))
+            cur += timedelta(days=1)
+    return out
+
+
 # Context settings endpoints
 class ContextIn(BaseModel):
     account_id: Optional[int] = None

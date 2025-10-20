@@ -6,7 +6,24 @@ import { formatAmount } from "@/lib/utils";
 
 type Position = { asset: string; value?: number; qty: number };
 
-const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
+const THEME_BASES = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+];
+
+const OPACITY_STEPS = [1, 0.88, 0.76, 0.64, 0.52, 0.4, 0.3, 0.22, 0.16];
+
+function baseColorFor(i: number): string {
+  return THEME_BASES[i % THEME_BASES.length];
+}
+
+function opacityFor(i: number): number {
+  const tier = Math.floor(i / THEME_BASES.length);
+  return OPACITY_STEPS[Math.min(tier, OPACITY_STEPS.length - 1)];
+}
 
 export function WealthAllocation({ accountIds }: { accountIds?: number[] }) {
   const [data, setData] = useState<Position[]>([]);
@@ -61,7 +78,12 @@ export function WealthAllocation({ accountIds }: { accountIds?: number[] }) {
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="asset" outerRadius={120} innerRadius={60} stroke="var(--border)">
               {data.map((_, idx) => (
-                <Cell key={idx} fill={PALETTE[idx % PALETTE.length]} />
+                <Cell
+                  key={idx}
+                  fill={baseColorFor(idx)}
+                  fillOpacity={opacityFor(idx)}
+                  strokeOpacity={opacityFor(idx)}
+                />
               ))}
             </Pie>
             <Tooltip formatter={(v) => formatAmount(v as number)} />
