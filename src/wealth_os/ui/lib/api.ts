@@ -73,5 +73,13 @@ export const api = {
     update: (id: number, body: TxIn) => http<Tx>(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     remove: (id: number) => http<{ ok: boolean }>(`/transactions/${id}`, { method: "DELETE" }),
   },
+  price: {
+    quote: (asset: string, quote = "USD", provider?: string) => {
+      const p = provider ? `&provider=${encodeURIComponent(provider)}` : "";
+      return http<{ symbol: string; quote_ccy: string; price: string | number; ts: string; source: string }>(`/price/quote?asset=${encodeURIComponent(asset)}&quote=${encodeURIComponent(quote)}${p}`);
+    },
+  },
+  datasource: {
+    priceList: () => http<string[]>(`/datasource/price`),
+  },
 };
-

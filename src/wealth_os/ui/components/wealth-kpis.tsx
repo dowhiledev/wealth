@@ -64,8 +64,9 @@ export function WealthKPIs({ accountIds, showAccountsKPI = true }: { accountIds?
           <CardTitle className="text-2xl font-semibold tabular-nums break-words leading-tight @[250px]/card:text-3xl">
             ${valueStr}
           </CardTitle>
-          <div className="mt-1">
+          <div className="mt-1 flex flex-wrap gap-2">
             <Badge variant="outline" className="whitespace-normal break-words text-xs px-2 py-0.5">Unrealized ${unrealStr}</Badge>
+            <Badge variant="outline" className="whitespace-normal break-words text-xs px-2 py-0.5">Realized ${realizedStr}</Badge>
           </div>
         </CardHeader>
       </Card>

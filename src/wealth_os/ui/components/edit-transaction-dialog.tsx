@@ -11,6 +11,7 @@ export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: 
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
+  const [providers, setProviders] = React.useState<string[]>([]);
   const [form, setForm] = React.useState<TxIn>({
     id: tx.id,
     ts: tx.ts,
@@ -18,8 +19,7 @@ export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: 
     asset_symbol: tx.asset_symbol,
     side: tx.side,
     qty: String(tx.qty ?? ""),
-    price_quote: tx.price_quote ?? "",
-    total_quote: tx.total_quote ?? "",
+    price_quote: (tx.price_quote ?? undefined) as unknown as string,
     quote_ccy: tx.quote_ccy ?? "USD",
     fee_qty: tx.fee_qty ?? "",
     fee_asset: tx.fee_asset ?? "",
@@ -33,11 +33,23 @@ export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: 
   React.useEffect(() => {
     api.accounts.list().then(setAccounts).catch(() => {});
   }, []);
+  React.useEffect(() => {
+    const FALLBACK = ["coinmarketcap", "coindesk"];
+    api.datasource
+      .priceList()
+      .then((list) => setProviders(list && list.length ? list : FALLBACK))
+      .catch(() => setProviders(FALLBACK));
+  }, []);
 
   const submit = async () => {
     try {
       setLoading(true);
-      const body: TxIn = { ...form, qty: String(form.qty || "0") };
+      const body: TxIn = {
+        ...form,
+        qty: String(form.qty || "0"),
+        price_quote: form.price_quote && String(form.price_quote).trim() !== "" ? form.price_quote : undefined,
+        total_quote: undefined,
+      } as unknown as TxIn;
       await api.tx.update(tx.id, body);
       toast.success("Transaction updated");
       setOpen(false);
@@ -85,6 +97,18 @@ export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: 
             </Select>
           </div>
           <div>
+            <label className="text-sm">Datasource</label>
+            <Select value={String(form.datasource ?? "auto")} onValueChange={(v) => setForm({ ...form, datasource: v === "auto" ? undefined : v })}>
+              <SelectTrigger><SelectValue placeholder="Auto" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
             <label className="text-sm">Asset</label>
             <Input value={form.asset_symbol} onChange={(e) => setForm({ ...form, asset_symbol: e.target.value.toUpperCase() })} />
           </div>
@@ -92,14 +116,27 @@ export function EditTransactionDialog({ tx, trigger, children, onSaved }: { tx: 
             <label className="text-sm">Qty</label>
             <Input value={String(form.qty ?? "")} onChange={(e) => setForm({ ...form, qty: e.target.value })} />
           </div>
-          <div>
-            <label className="text-sm">Price</label>
-            <Input value={String(form.price_quote ?? "")} onChange={(e) => setForm({ ...form, price_quote: e.target.value })} />
-          </div>
-          <div>
-            <label className="text-sm">Total</label>
-            <Input value={String(form.total_quote ?? "")} onChange={(e) => setForm({ ...form, total_quote: e.target.value })} />
-          </div>
+          {((form.side === "buy") || (form.side === "sell")) && (
+            <div className="md:col-span-2 flex items-end gap-2">
+              <div className="grow">
+                <label className="text-sm">Price</label>
+                <Input value={String(form.price_quote ?? "")} onChange={(e) => setForm({ ...form, price_quote: e.target.value })} />
+              </div>
+              <Button type="button" variant="outline" className="mb-0" onClick={async () => {
+                try {
+                  setLoading(true);
+                  const q = await api.price.quote(form.asset_symbol, form.quote_ccy || "USD", form.datasource as string | undefined);
+                  setForm((f) => ({ ...f, price_quote: String(q.price), quote_ccy: q.quote_ccy }));
+                  toast.success(`Fetched ${q.symbol}/${q.quote_ccy} price`);
+                } catch (e: unknown) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  toast.error(msg);
+                } finally {
+                  setLoading(false);
+                }
+              }} disabled={loading}>Get latest price</Button>
+            </div>
+          )}
           <div>
             <label className="text-sm">CCY</label>
             <Input value={String(form.quote_ccy ?? "")} onChange={(e) => setForm({ ...form, quote_ccy: e.target.value })} />

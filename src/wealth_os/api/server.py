@@ -19,12 +19,21 @@ from wealth_os.db.repo import (
     create_transaction,
     update_transaction,
     delete_transaction,
+    get_asset_preference,
+    set_asset_preference,
+    upsert_price,
 )
 from wealth_os.db.models import AccountType, TxSide
-from wealth_os.core.valuation import summarize_portfolio
+from wealth_os.core.valuation import summarize_portfolio, compute_holdings
 from sqlmodel import select
 from sqlalchemy import func
 from wealth_os.db import models as dbm
+import os
+
+# Ensure providers are registered
+import wealth_os.datasources  # noqa: F401
+from wealth_os.datasources.registry import get_price_sources
+from wealth_os.datasources.base import PriceQuote as DSPriceQuote
 
 
 app = FastAPI(title="Wealth API", version="0.1.0")
@@ -77,6 +86,60 @@ class TxOut(TxIn):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+class QuoteOut(BaseModel):
+    symbol: str
+    quote_ccy: str = "USD"
+    price: Decimal
+    ts: datetime
+    source: str
+
+
+def _provider_order(preferred: str | None = None) -> list[str]:
+    default = os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")
+    base = [s.strip() for s in default.split(",") if s.strip()]
+    out: list[str] = []
+    if preferred and preferred not in out:
+        out.append(preferred)
+    for name in base:
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def _latest_quote(session, symbol: str, quote: str, first_provider: str | None = None) -> QuoteOut | None:
+    sources = get_price_sources()
+    # If a provider was explicitly requested, try it first; otherwise use stored preference
+    pref = first_provider or get_asset_preference(session, symbol)
+    order = _provider_order(pref)
+    last_err: Exception | None = None
+    sym = symbol.upper()
+    qccy = (quote or "USD").upper()
+    for name in order:
+        if name not in sources:
+            continue
+        try:
+            cls = sources[name]
+            src = cls()  # type: ignore[call-arg]
+            q: DSPriceQuote = src.get_quote(sym, qccy)
+            set_asset_preference(session, sym, src.id())
+            # cache the quote as last price for portfolio views
+            upsert_price(
+                session,
+                asset_symbol=sym,
+                quote_ccy=q.quote_ccy,
+                ts=q.ts,
+                price=q.price,
+                source=src.id(),
+            )
+            return QuoteOut(
+                symbol=q.symbol, quote_ccy=q.quote_ccy, price=q.price, ts=q.ts, source=src.id()
+            )
+        except Exception as e:  # pragma: no cover - network errors
+            last_err = e
+            continue
+    return None
 
 
 @app.get("/accounts", response_model=List[AccountOut])
@@ -166,6 +229,16 @@ def api_list_transactions(
 def api_create_tx(body: TxIn):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
+        # Auto-fill price for buy/sell when only qty provided
+        eff_price = body.price_quote
+        if eff_price is None and body.side in (TxSide.buy, TxSide.sell):
+            # If datasource matches a known provider, prefer it for this request
+            req_provider = body.datasource if body.datasource in get_price_sources().keys() else None
+            q = _latest_quote(s, body.asset_symbol, body.quote_ccy, req_provider)
+            if q is not None:
+                eff_price = q.price
+                # ensure quote ccy aligns
+                body.quote_ccy = q.quote_ccy
         row = create_transaction(
             s,
             ts=body.ts or datetime.utcnow(),
@@ -173,7 +246,7 @@ def api_create_tx(body: TxIn):
             asset_symbol=body.asset_symbol,
             side=body.side,
             qty=body.qty,
-            price_quote=body.price_quote,
+            price_quote=eff_price,
             total_quote=body.total_quote,
             quote_ccy=body.quote_ccy,
             fee_qty=body.fee_qty,
@@ -192,6 +265,13 @@ def api_create_tx(body: TxIn):
 def api_update_tx(tx_id: int, body: TxIn):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
+        eff_price = body.price_quote
+        if eff_price is None and body.side in (TxSide.buy, TxSide.sell):
+            req_provider = body.datasource if body.datasource in get_price_sources().keys() else None
+            q = _latest_quote(s, body.asset_symbol, body.quote_ccy, req_provider)
+            if q is not None:
+                eff_price = q.price
+                body.quote_ccy = q.quote_ccy
         row = update_transaction(
             s,
             tx_id,
@@ -200,7 +280,7 @@ def api_update_tx(tx_id: int, body: TxIn):
             asset_symbol=body.asset_symbol,
             side=body.side,
             qty=body.qty,
-            price_quote=body.price_quote,
+            price_quote=eff_price,
             total_quote=body.total_quote,
             quote_ccy=body.quote_ccy,
             fee_qty=body.fee_qty,
@@ -254,8 +334,20 @@ class PortfolioSummary(BaseModel):
 def api_portfolio_summary(quote: str = "USD", account_id: Optional[int] = None):
     cfg = get_config()
     with session_scope(cfg.db_path) as s:
+        # Best-effort: ensure fresh latest quotes for held assets to make KPIs "live"
+        now = datetime.utcnow()
+        try:
+            holds = compute_holdings(s, as_of=now, account_id=account_id)
+            for sym in holds.keys():
+                row = get_last_price(s, asset_symbol=sym, quote_ccy=quote)
+                # Fetch if missing or older than 5 minutes
+                if row is None or (now - row.ts).total_seconds() > 300:
+                    _latest_quote(s, sym, quote)
+        except Exception:
+            # Non-fatal; proceed with whatever cached prices exist
+            pass
         positions, totals = summarize_portfolio(
-            s, as_of=datetime.utcnow(), quote=quote, account_id=account_id
+            s, as_of=now, quote=quote, account_id=account_id
         )
         pos = [PositionOut(**p.__dict__) for p in positions]
         tot = TotalsOut(**totals)  # type: ignore[arg-type]
@@ -279,3 +371,19 @@ def api_stats(account_id: Optional[int] = None):
         accounts_count = s.exec(select(func.count(dbm.Account.id))).one()
         tx_count = s.exec(select(func.count(dbm.Transaction.id))).one()
     return {"accounts": accounts_count, "transactions": tx_count}
+
+
+@app.get("/price/quote", response_model=QuoteOut)
+def api_price_quote(asset: str, quote: str = "USD", provider: Optional[str] = None):
+    cfg = get_config()
+    with session_scope(cfg.db_path) as s:
+        req_provider = provider if provider in get_price_sources().keys() else None
+        q = _latest_quote(s, asset, quote, req_provider)
+        if q is None:
+            raise HTTPException(status_code=502, detail="Failed to fetch quote from providers")
+        return q
+
+
+@app.get("/datasource/price", response_model=list[str])
+def api_list_price_sources():
+    return sorted(get_price_sources().keys())

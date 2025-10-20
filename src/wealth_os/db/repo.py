@@ -165,15 +165,28 @@ def create_transaction(
     if fee_asset:
         ensure_asset(session, fee_asset)
 
+    # Derive missing monetary fields for buy/sell: prefer computing total from price*qty
+    eff_price = price_quote
+    eff_total = total_quote
+    try:
+        if side in (TxSide.buy, TxSide.sell):
+            if eff_price is not None and eff_total is None and qty is not None:
+                eff_total = eff_price * qty
+            elif eff_total is not None and eff_price is None and qty not in (None, 0):
+                eff_price = eff_total / qty
+    except Exception:
+        # best-effort; leave as provided
+        pass
+
     tx = Transaction(
         ts=ts,
         account_id=account_id,
         asset_symbol=asset_symbol.upper(),
         side=side,
         qty=qty,
-        price_quote=price_quote,
-        total_quote=total_quote,
-        quote_ccy=quote_ccy,
+        price_quote=eff_price,
+        total_quote=eff_total,
+        quote_ccy=(quote_ccy or "USD"),
         fee_qty=fee_qty,
         fee_asset=fee_asset.upper() if fee_asset else None,
         note=note,
@@ -285,6 +298,20 @@ def update_transaction(
         tx.import_batch_id = import_batch_id
     if tags is not None:
         tx.tags = tags
+    # Derive missing monetary fields for buy/sell after applying changes
+    try:
+        if tx.side in (TxSide.buy, TxSide.sell):
+            if tx.price_quote is not None and tx.total_quote is None and tx.qty is not None:
+                tx.total_quote = tx.price_quote * tx.qty
+            elif (
+                tx.total_quote is not None
+                and tx.price_quote is None
+                and tx.qty not in (None, 0)
+            ):
+                tx.price_quote = tx.total_quote / tx.qty
+    except Exception:
+        pass
+
     session.add(tx)
     session.flush()
     return tx
@@ -392,11 +419,26 @@ def get_last_price(
     asset_symbol: str,
     quote_ccy: str = "USD",
     as_of: datetime | None = None,
+    provider: str | None = None,
 ) -> Price | None:
-    stmt = select(Price).where(
-        Price.asset_symbol == asset_symbol.upper(),
-        Price.quote_ccy == quote_ccy.upper(),
-    )
+    sym = asset_symbol.upper()
+    qccy = quote_ccy.upper()
+    # First try preferred/provider-specific rows
+    pref = provider or get_asset_preference(session, sym)
+    if pref:
+        stmt = select(Price).where(
+            Price.asset_symbol == sym,
+            Price.quote_ccy == qccy,
+            Price.source == pref,
+        )
+        if as_of is not None:
+            stmt = stmt.where(Price.ts <= as_of)
+        stmt = stmt.order_by(Price.ts.desc()).limit(1)
+        row = session.exec(stmt).first()
+        if row is not None:
+            return row
+    # Fallback to any provider
+    stmt = select(Price).where(Price.asset_symbol == sym, Price.quote_ccy == qccy)
     if as_of is not None:
         stmt = stmt.where(Price.ts <= as_of)
     stmt = stmt.order_by(Price.ts.desc()).limit(1)
