@@ -4,11 +4,12 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from wealth_os.core.config import get_config
+from wealth_os.core.context import load_context, save_context, Context
 from wealth_os.db.repo import (
     session_scope,
     list_accounts,
@@ -22,6 +23,7 @@ from wealth_os.db.repo import (
     get_asset_preference,
     set_asset_preference,
     upsert_price,
+    get_last_price,
 )
 from wealth_os.db.models import AccountType, TxSide
 from wealth_os.core.valuation import summarize_portfolio, compute_holdings
@@ -97,7 +99,9 @@ class QuoteOut(BaseModel):
 
 
 def _provider_order(preferred: str | None = None) -> list[str]:
-    default = os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk")
+    # Context override > env var
+    ctx = load_context()
+    default = (ctx.providers or os.getenv("WEALTH_PRICE_PROVIDER_ORDER", "coinmarketcap,coindesk"))
     base = [s.strip() for s in default.split(",") if s.strip()]
     out: list[str] = []
     if preferred and preferred not in out:
@@ -371,6 +375,218 @@ def api_stats(account_id: Optional[int] = None):
         accounts_count = s.exec(select(func.count(dbm.Account.id))).one()
         tx_count = s.exec(select(func.count(dbm.Transaction.id))).one()
     return {"accounts": accounts_count, "transactions": tx_count}
+
+
+# Context settings endpoints
+class ContextIn(BaseModel):
+    account_id: Optional[int] = None
+    quote: Optional[str] = None
+    providers: Optional[str] = None
+    datasource: Optional[str] = None
+
+
+class ContextOut(ContextIn):
+    pass
+
+
+@app.get("/context", response_model=ContextOut)
+def api_get_context():
+    ctx = load_context()
+    return ContextOut(
+        account_id=ctx.account_id,
+        quote=ctx.quote,
+        providers=ctx.providers,
+        datasource=ctx.datasource,
+    )
+
+
+@app.put("/context", response_model=ContextOut)
+def api_put_context(body: ContextIn):
+    ctx = load_context()
+    if body.account_id is not None:
+        ctx.account_id = body.account_id
+    if body.quote is not None:
+        ctx.quote = body.quote
+    if body.providers is not None:
+        ctx.providers = body.providers
+    if body.datasource is not None:
+        ctx.datasource = body.datasource
+    save_context(ctx)
+    return ContextOut(
+        account_id=ctx.account_id,
+        quote=ctx.quote,
+        providers=ctx.providers,
+        datasource=ctx.datasource,
+    )
+
+
+# CSV export/import endpoints
+@app.get("/export/transactions.csv")
+def api_export_transactions_csv(
+    account_id: Optional[int] = None,
+    asset: Optional[str] = None,
+    side: Optional[TxSide] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+):
+    import csv
+    import io
+
+    cfg = get_config()
+    output = io.StringIO()
+    w = csv.writer(output)
+    # Header aligned with CLI export
+    w.writerow(
+        [
+            "timestamp",
+            "account",
+            "account_id",
+            "asset",
+            "side",
+            "qty",
+            "price_quote",
+            "total_quote",
+            "quote_ccy",
+            "fee_qty",
+            "fee_asset",
+            "note",
+            "tags",
+            "tx_hash",
+            "external_id",
+            "datasource",
+            "import_batch_id",
+        ]
+    )
+    with session_scope(cfg.db_path) as s:
+        rows = list_transactions(
+            s,
+            account_id=account_id,
+            asset_symbol=asset,
+            side=side,
+            since=since,
+            until=until,
+            limit=1000000,
+            offset=0,
+        )
+        # cache account names
+        acct_names: dict[int, str] = {}
+        from wealth_os.db.repo import get_account
+
+        for t in rows:
+            if t.account_id not in acct_names:
+                acc = get_account(s, t.account_id)
+                acct_names[t.account_id] = acc.name if acc else ""
+            w.writerow(
+                [
+                    t.ts.isoformat(),
+                    acct_names.get(t.account_id, ""),
+                    t.account_id,
+                    t.asset_symbol,
+                    t.side,
+                    str(t.qty) if t.qty is not None else "",
+                    str(t.price_quote) if t.price_quote is not None else "",
+                    str(t.total_quote) if t.total_quote is not None else "",
+                    t.quote_ccy or "",
+                    str(t.fee_qty) if t.fee_qty is not None else "",
+                    t.fee_asset or "",
+                    t.note or "",
+                    t.tags or "",
+                    t.tx_hash or "",
+                    t.external_id or "",
+                    t.datasource or "",
+                    t.import_batch_id or "",
+                ]
+            )
+    content = output.getvalue()
+    headers = {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": "attachment; filename=transactions.csv",
+    }
+    return Response(content=content, headers=headers, media_type="text/csv")
+
+
+@app.post("/import/transactions.csv")
+def api_import_transactions_csv(
+    file: UploadFile = File(...),
+    account_id: Optional[int] = Form(None),
+    datasource: Optional[str] = Form(None),
+    dedupe_by: str = Form("external_id"),
+):
+    from pathlib import Path
+    import tempfile
+    from wealth_os.datasources.generic_csv import GenericCSVImportSource
+    from wealth_os.db.repo import (
+        create_import_batch,
+        update_import_batch_summary,
+        find_tx_by_external_id,
+        find_tx_by_tx_hash,
+    )
+
+    if account_id is None:
+        raise HTTPException(status_code=400, detail="account_id is required")
+    if dedupe_by not in ("external_id", "tx_hash", "none"):
+        raise HTTPException(status_code=400, detail="invalid dedupe_by")
+
+    cfg = get_config()
+    inserted = 0
+    skipped = 0
+
+    # persist upload to a temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix) as tmp:
+        tmp.write(file.file.read())
+        tmp_path = tmp.name
+
+    try:
+        src = GenericCSVImportSource()
+        parsed = src.parse_csv(tmp_path, options={"mapping": {}})
+        with session_scope(cfg.db_path) as s:
+            batch = create_import_batch(
+                s, datasource=datasource or "generic_csv", source_file=str(file.filename), summary=None
+            )
+            for row in parsed:
+                # dedupe
+                if dedupe_by == "external_id" and row.external_id:
+                    if find_tx_by_external_id(
+                        s, datasource=datasource or "generic_csv", external_id=row.external_id
+                    ):
+                        skipped += 1
+                        continue
+                if dedupe_by == "tx_hash" and row.tx_hash:
+                    if find_tx_by_tx_hash(s, tx_hash=row.tx_hash):
+                        skipped += 1
+                        continue
+                create_transaction(
+                    s,
+                    ts=row.ts,
+                    account_id=int(account_id),
+                    asset_symbol=row.asset_symbol,
+                    side=row.side,
+                    qty=row.qty,
+                    price_quote=row.price_quote,
+                    total_quote=row.total_quote,
+                    quote_ccy=row.quote_ccy,
+                    fee_qty=row.fee_qty,
+                    fee_asset=row.fee_asset,
+                    note=row.note,
+                    tx_hash=row.tx_hash,
+                    external_id=row.external_id,
+                    datasource=datasource or row.datasource,
+                    import_batch_id=batch.id,
+                    tags=row.tags,
+                )
+                inserted += 1
+            update_import_batch_summary(
+                s,
+                batch.id,
+                summary=f"Inserted {inserted}, skipped {skipped} (dedupe_by={dedupe_by})",
+            )
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return {"inserted": inserted, "skipped": skipped}
 
 
 @app.get("/price/quote", response_model=QuoteOut)

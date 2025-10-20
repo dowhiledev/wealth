@@ -82,4 +82,9 @@ export const api = {
   datasource: {
     priceList: () => http<string[]>(`/datasource/price`),
   },
+  context: {
+    get: () => http<{ account_id?: number | null; quote?: string | null; providers?: string | null; datasource?: string | null }>(`/context`),
+    update: (body: { account_id?: number | null; quote?: string | null; providers?: string | null; datasource?: string | null }) =>
+      http(`/context`, { method: "PUT", body: JSON.stringify(body) }),
+  },
 };

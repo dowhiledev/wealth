@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { IconDashboard, IconListDetails, IconUsers, IconInnerShadowTop } from "@tabler/icons-react";
+import { IconDashboard, IconListDetails, IconUsers, IconInnerShadowTop, IconSettings } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
@@ -19,6 +19,7 @@ const data = {
     { title: "Dashboard", url: "/", icon: IconDashboard },
     { title: "Accounts", url: "/accounts", icon: IconUsers },
     { title: "Transactions", url: "/transactions", icon: IconListDetails },
+    { title: "Settings", url: "/settings", icon: IconSettings },
   ],
 };
 
